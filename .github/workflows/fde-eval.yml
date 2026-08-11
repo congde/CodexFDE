@@ -1,0 +1,68 @@
+# FDE 主线流水线：Eval 评估 + 质量门禁（对应大纲 L08：无人值守批量开发）
+# 触发：
+#   - push / pull_request：每次变更即时校验
+#   - 定时（cron）：每日定时跑 Eval，作为 V1 无人值守流水线演示
+# 通过率作为验收门槛，低于阈值即失败（打回）。
+# 唯一主线：AI 模型 API 中转站（gateway / eval / agent / web）
+
+name: FDE Eval & Quality Gate
+
+on:
+  push:
+    paths:
+      - "gateway/**"
+      - "eval/**"
+      - "hooks/**"
+      - "agent/**"
+      - "web/**"
+  pull_request:
+  schedule:
+    # 每日 08:00 UTC（北京时间 16:00）定时跑 Eval
+    - cron: "0 8 * * *"
+  workflow_dispatch:
+
+jobs:
+  eval:
+    name: Eval Harness + Quality Gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 冒烟自测（中转站 demo）
+        run: python -X utf8 -m gateway.cli demo
+
+      - name: 运行 Eval Harness（量化打分）
+        id: eval
+        run: python -X utf8 -m eval.harness --suite all --report eval/report.json
+
+      - name: 运行 Agentic Loop（自迭代收敛）
+        run: python -X utf8 -m agent.loop --max-rounds 3
+
+      - name: 运行 Graph 多 Agent 工作流
+        run: python -X utf8 -m agent.graph --max-rounds 3
+
+      - name: 运行运维 Agent 自运维巡检（V2）
+        run: python -X utf8 -m agent.ops --run --seed
+
+      - name: 运行反馈采集飞轮（V3）
+        run: |
+          python -X utf8 -m gateway.feedback record --key ci --rating 4 --category quality --comment "CI 自测"
+          python -X utf8 -m gateway.feedback summary
+
+      - name: 质量门禁（Hooks）
+        run: python -X utf8 hooks/pre-commit-quality.py
+
+      - name: 上传评估报告
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-report
+          path: eval/report.json
+
+      - name: 验收门槛检查（通过率 100% 才放行）
+        run: |
+          python -X utf8 -c "import json;d=json.load(open('eval/report.json',encoding='utf-8'));rate=d['rate'];print(f'pass_rate={rate}');assert rate==1.0, 'Eval 通过率未达 100%，打回'"

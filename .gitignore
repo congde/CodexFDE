@@ -216,3 +216,12 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# FDE 评估报告产物（CI 生成，不入库）
+eval/report.json
+
+# AI 中转站运行时日志（演示生成）
+logs/
+
+# AI 中转站生产数据库与运行时数据（V3，由 gateway.store / admin 生成）
+data/
