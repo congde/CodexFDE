@@ -1,0 +1,30 @@
+name: FlowERP Eval Gate
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  blocking-evals:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Unit tests
+        run: python -X utf8 -m unittest discover -s tests -v
+      - name: Unified blocking gate
+        run: python -X utf8 -m eval.harness --suite blocking
+      - name: Upload machine-readable evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: flowerp-harness-report
+          path: .runtime/reports/harness-blocking.json
+          if-no-files-found: error

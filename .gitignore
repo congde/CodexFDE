@@ -6,6 +6,10 @@ __pycache__/
 # C extensions
 *.so
 
+docs/
+.codex-tmp/
+course/
+
 # Distribution / packaging
 .Python
 build/
@@ -225,3 +229,8 @@ logs/
 
 # AI 中转站生产数据库与运行时数据（V3，由 gateway.store / admin 生成）
 data/
+
+# FlowERP 课程项目本地运行与课件 QA 产物
+.runtime/
+.tmp/
+*.pptx.inspect.ndjson

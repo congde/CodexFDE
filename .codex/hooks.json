@@ -1,0 +1,18 @@
+{
+  "description": "FlowERP 在 Codex 准备结束一轮工作时复用统一阻断级 Harness。首次使用需在 /hooks 中审查并信任。",
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$(git rev-parse --show-toplevel)/.codex/hooks/quality_gate.py\"",
+            "commandWindows": "powershell -NoProfile -Command \"$r = git rev-parse --show-toplevel; python (Join-Path $r '.codex/hooks/quality_gate.py')\"",
+            "statusMessage": "Running FlowERP blocking evals",
+            "timeout": 120
+          }
+        ]
+      }
+    ]
+  }
+}

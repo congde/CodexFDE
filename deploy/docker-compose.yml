@@ -1,0 +1,43 @@
+services:
+  flowerp:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    ports:
+      - "${FLOWERP_BIND_IP:-127.0.0.1}:${FLOWERP_PORT:-8000}:8000"
+    environment:
+      FLOWERP_ENV: production
+      FLOWERP_AUTH_REQUIRED: "true"
+      FLOWERP_HOST: 0.0.0.0
+      FLOWERP_PORT: 8000
+      FLOWERP_ALLOWED_ORIGINS: ${FLOWERP_ALLOWED_ORIGINS:-http://127.0.0.1:8000}
+      FLOWERP_COOKIE_SECURE: ${FLOWERP_COOKIE_SECURE:-false}
+      FLOWERP_MAX_CONCURRENT_REQUESTS: ${FLOWERP_MAX_CONCURRENT_REQUESTS:-64}
+      FLOWERP_REQUEST_RATE_PER_MINUTE: ${FLOWERP_REQUEST_RATE_PER_MINUTE:-600}
+      FLOWERP_REQUEST_TIMEOUT_SECONDS: ${FLOWERP_REQUEST_TIMEOUT_SECONDS:-30}
+      FLOWERP_DB_BUSY_TIMEOUT_MS: ${FLOWERP_DB_BUSY_TIMEOUT_MS:-5000}
+      FLOWERP_MIN_FREE_DISK_MB: ${FLOWERP_MIN_FREE_DISK_MB:-512}
+      FLOWERP_BACKUP_MAX_AGE_HOURS: ${FLOWERP_BACKUP_MAX_AGE_HOURS:-36}
+      FLOWERP_REQUIRE_RECENT_BACKUP: ${FLOWERP_REQUIRE_RECENT_BACKUP:-false}
+    volumes:
+      - flowerp-runtime:/app/.runtime
+    read_only: true
+    init: true
+    pids_limit: 256
+    tmpfs:
+      - /tmp
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    stop_grace_period: 30s
+    stop_signal: SIGTERM
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+volumes:
+  flowerp-runtime:

@@ -1,0 +1,8 @@
+[project]
+name = "flowerp-fde-camp"
+version = "0.1.0"
+description = "A dependency-light ERP project for Codex + FDE delivery training"
+requires-python = ">=3.10"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

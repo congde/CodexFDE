@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta name="robots" content="noindex,nofollow">
+  <title>FlowERP · 经营管理系统</title>
+  <link rel="stylesheet" href="./styles.css?v=25">
+</head>
+<body>
+  <a class="skip-link" href="#main-content">跳到主内容</a>
+  <div class="loading-bar" id="loading-bar" aria-hidden="true"></div>
+  <div id="auth-shell" class="auth-shell hidden">
+    <section class="auth-story">
+      <div class="auth-brand"><span class="brand-mark">F</span><span><b>FlowERP</b><small>BUSINESS OPERATING SYSTEM</small></span><em>ERP · v1</em></div>
+      <div class="auth-copy">
+        <p class="eyebrow"><span></span> REAL-TIME OPERATIONS ERP</p>
+        <h1>把销售、采购、库存与资金，放进同一条可信链路。</h1>
+        <p>从订单履约到业务总账，每一次库存变化、采购审批和资金流转，都有一致的数据与可追溯证据。</p>
+      </div>
+      <ol class="auth-points">
+        <li><span>01</span><div><b>库存不超卖</b><small>原子预占与不可变流水</small></div></li>
+        <li><span>02</span><div><b>采购有审批</b><small>制单与审批职责分离</small></div></li>
+        <li><span>03</span><div><b>操作可追溯</b><small>用户、单据与变更完整留痕</small></div></li>
+      </ol>
+    </section>
+    <section class="auth-panel">
+      <form id="login-form" class="auth-form hidden">
+        <div class="mobile-brand"><span class="brand-mark">F</span> FlowERP</div>
+        <div class="auth-kicker"><span></span> 企业安全入口</div>
+        <p class="eyebrow">欢迎回来</p><h2>登录业务工作台</h2><p class="muted">进入统一经营视图，继续处理今日业务。</p>
+        <label>组织代码<input name="organization" value="DEFAULT" autocomplete="organization" required></label>
+        <label>用户名<input name="username" autocomplete="username" required autofocus></label>
+        <label>密码<input name="password" type="password" autocomplete="current-password" required></label>
+        <button class="button primary wide auth-submit" type="submit"><span>安全登录</span><i>→</i></button>
+        <p class="form-error" id="login-error"></p>
+        <div class="auth-assurance"><span>✓ 会话隔离</span><span>✓ 权限控制</span><span>✓ 操作留痕</span></div>
+      </form>
+      <form id="setup-form" class="auth-form hidden">
+        <div class="mobile-brand"><span class="brand-mark">F</span> FlowERP</div>
+        <div class="auth-kicker"><span></span> 安全初始化</div>
+        <p class="eyebrow">首次启动</p><h2>创建您的工作空间</h2><p class="muted">只需一步创建组织及首位管理员，随后即可配置业务资料。</p>
+        <label>组织名称<input name="organization_name" value="FlowERP" maxlength="100" required></label>
+        <label>管理员账号<input name="username" value="admin" autocomplete="username" maxlength="64" required></label>
+        <label>管理员密码<input name="password" type="password" minlength="10" autocomplete="new-password" required></label>
+        <label>确认密码<input name="confirm_password" type="password" minlength="10" autocomplete="new-password" required></label>
+        <button class="button primary wide auth-submit" type="submit"><span>创建并进入系统</span><i>→</i></button>
+        <p class="form-error" id="setup-error"></p>
+        <div class="auth-assurance"><span>✓ 本地存储</span><span>✓ 密码加密</span><span>✓ 随时备份</span></div>
+      </form>
+      <section id="offline-form" class="auth-form offline-card hidden">
+        <div class="mobile-brand"><span class="brand-mark">F</span> FlowERP</div>
+        <div class="offline-icon">↗</div>
+        <p class="eyebrow">启动提示</p><h2>界面已准备好</h2>
+        <p class="muted">当前是直接打开的静态文件。FlowERP 需要本地服务连接数据库和业务 API。</p>
+        <div class="launch-command"><span>在项目目录运行</span><code>python -X utf8 -m workbench.cli serve --port 8000</code></div>
+        <a class="button primary wide auth-submit" href="http://127.0.0.1:8000"><span>打开 FlowERP</span><i>→</i></a>
+        <p class="offline-note">启动后刷新或点击上方按钮，不需要修改任何配置。</p>
+      </section>
+    </section>
+  </div>
+
+  <div id="app-shell" class="app-shell hidden">
+    <aside class="sidebar" id="sidebar">
+      <a class="brand" href="#dashboard"><span class="brand-mark">F</span><span><b>FlowERP</b><small>OPERATIONS ERP</small></span></a>
+      <nav id="main-nav">
+        <p>经营总览</p>
+        <a href="#dashboard" data-page="dashboard"><i>⌂</i><span>经营驾驶舱</span></a>
+        <p>业务协同</p>
+        <a href="#channels" data-page="channels"><i>⌁</i><span>渠道订单中台</span><em id="nav-channel-count"></em></a>
+        <a href="#sales" data-page="sales"><i>▤</i><span>销售订单</span><em id="nav-sales-count"></em></a>
+        <a href="#purchases" data-page="purchases"><i>▣</i><span>采购管理</span><em id="nav-purchase-count"></em></a>
+        <a href="#inventory" data-page="inventory"><i>◫</i><span>库存管理</span></a>
+        <a href="#finance" data-page="finance"><i>¥</i><span>财务中心</span></a>
+        <p>基础与治理</p>
+        <a href="#products" data-page="products"><i>◇</i><span>商品档案</span></a>
+        <a href="#partners" data-page="partners"><i>◎</i><span>客户与供应商</span></a>
+        <a href="#audit" data-page="audit"><i>◉</i><span>审计日志</span></a>
+        <a href="#delivery" data-page="delivery"><i>⌘</i><span>研发交付</span><em id="nav-task-count"></em></a>
+        <a href="#settings" data-page="settings"><i>⚙</i><span>系统与用户</span></a>
+      </nav>
+      <div class="sidebar-foot"><span class="health-dot"></span><span id="health-label">服务就绪</span><small>单实例 · SQLite WAL</small></div>
+    </aside>
+    <button class="sidebar-scrim hidden" id="sidebar-scrim" aria-label="关闭导航"></button>
+
+    <div class="workspace">
+      <header class="topbar">
+        <button class="icon-button mobile-menu" id="menu-button" aria-label="打开导航">☰</button>
+        <div class="breadcrumbs"><span>FlowERP</span><b>/</b><strong id="page-name">经营驾驶舱</strong></div>
+        <button class="global-search" id="global-search-button" type="button" aria-label="全局搜索">
+          <span class="search-icon">⌕</span><span>搜索单据、商品或往来单位</span><kbd>Ctrl K</kbd>
+        </button>
+        <div class="top-actions">
+          <span class="sync-state" id="sync-state"><i></i><span>数据已同步</span></span>
+          <button class="icon-button" id="refresh-button" title="刷新" aria-label="刷新当前页">↻</button>
+          <div class="user-menu">
+            <button id="user-button"><span class="avatar" id="user-avatar">管</span><span class="user-copy"><b id="user-name">系统管理员</b><small id="user-role">管理员</small></span><span>⌄</span></button>
+            <div class="user-popover hidden" id="user-popover"><button id="change-password">修改密码</button><button id="logout-button">退出登录</button></div>
+          </div>
+        </div>
+      </header>
+
+      <main id="main-content">
+        <section class="page" id="page-dashboard">
+          <div class="page-heading"><div><p class="eyebrow">TODAY'S OPERATIONS</p><h1>经营驾驶舱</h1><p>订单、库存、采购和资金风险的实时视图。</p></div><div class="heading-actions"><button class="button" data-open="receive">其他入库</button><button class="button primary" data-open="sales-order">＋ 新建销售订单</button></div></div>
+          <div class="metric-grid" id="dashboard-metrics"></div>
+          <article class="panel trend-panel">
+            <header><div><h2>月度经营趋势</h2><p>最近 12 个月 · 销售取业务单据，资产与往来余额取已过账总账</p></div><div class="trend-controls" id="dashboard-trend-controls"><button class="active" data-trend="sales">销售额</button><button data-trend="inventory">库存资产</button><button data-trend="receivable">应收</button><button data-trend="payable">应付</button></div></header>
+            <div class="trend-summary" id="dashboard-trend-summary"></div>
+            <div class="trend-chart" id="dashboard-trend-chart"></div>
+          </article>
+          <div class="content-grid main-grid">
+            <article class="panel"><header><div><h2>待办事项</h2><p>需要团队继续处理的业务单据</p></div></header><div class="todo-grid" id="dashboard-todos"></div></article>
+            <article class="panel"><header><div><h2>库存预警</h2><p>可用库存低于补货点</p></div><a href="#inventory">查看全部</a></header><div id="dashboard-low-stock"></div></article>
+          </div>
+          <article class="panel"><header><div><h2>最近销售订单</h2><p>按下单时间倒序</p></div><a href="#sales">进入销售管理</a></header><div class="table-scroll" id="dashboard-orders"></div></article>
+        </section>
+
+        <section class="page hidden" id="page-sales">
+          <div class="page-heading"><div><p class="eyebrow">ORDER TO CASH</p><h1>销售订单</h1><p>报价、确认、库存预占、发货、退货与开票。</p></div><button class="button primary" data-open="sales-order">＋ 新建销售订单</button></div>
+          <div class="filterbar"><select id="sales-status"><option value="">全部状态</option><option value="draft">草稿</option><option value="confirmed">待预占</option><option value="reserved">待发货</option><option value="partially_shipped">部分发货</option><option value="shipped">已发货</option><option value="cancelled">已取消</option></select><input id="sales-search" placeholder="搜索单号或客户"><button class="button" id="sales-filter">查询</button></div>
+          <div class="tabs" data-tabs="sales"><button class="active" data-tab="orders">销售订单</button><button data-tab="returns">退货处理</button></div>
+          <article class="panel tab-panel" data-tab-panel="orders"><div class="table-scroll" id="sales-table"></div></article>
+          <article class="panel tab-panel hidden" data-tab-panel="returns"><div class="table-scroll" id="returns-table"></div></article>
+        </section>
+
+        <section class="page hidden" id="page-channels">
+          <div class="page-heading"><div><p class="eyebrow">OMNICHANNEL COMMERCE</p><h1>渠道订单中台</h1><p>统一接入店铺订单，完成 SKU 映射、异常拦截、审单、库存预占与发货回传。</p></div><div class="heading-actions"><button class="button" data-open="channel-shop">＋ 接入店铺</button><button class="button" data-open="channel-listing">＋ SKU 映射</button><button class="button primary" data-open="channel-import">导入渠道订单</button></div></div>
+          <div class="metric-grid" id="channel-metrics"></div>
+          <div class="filterbar"><select id="channel-order-status"><option value="">全部状态</option><option value="received">待审单</option><option value="blocked">已拦截</option><option value="exception">履约异常</option><option value="imported">已转销售单</option><option value="cancelled">已取消</option></select><select id="channel-shop-filter"><option value="">全部店铺</option></select><button class="button" id="channel-filter">查询</button></div>
+          <div class="tabs" data-tabs="channels"><button class="active" data-tab="orders">统一订单池</button><button data-tab="shops">店铺接入</button><button data-tab="mappings">平台 SKU 映射</button><button data-tab="callbacks">平台回传任务</button></div>
+          <article class="panel tab-panel" data-tab-panel="orders"><div class="table-scroll" id="channel-orders-table"></div></article>
+          <article class="panel tab-panel hidden" data-tab-panel="shops"><div class="table-scroll" id="channel-shops-table"></div></article>
+          <article class="panel tab-panel hidden" data-tab-panel="mappings"><div class="table-scroll" id="channel-listings-table"></div></article>
+          <article class="panel tab-panel hidden" data-tab-panel="callbacks"><header><div><h2>发货与改单回传</h2><p>只有适配器收到平台成功响应后才能将任务标记为成功</p></div></header><div class="table-scroll" id="channel-callbacks-table"></div></article>
+        </section>
+
+        <section class="page hidden" id="page-purchases">
+          <div class="page-heading"><div><p class="eyebrow">PROCURE TO PAY</p><h1>采购管理</h1><p>采购申请、四眼审批、到货质检与应付登记。</p></div><button class="button primary" data-open="purchase-order">＋ 新建采购单</button></div>
+          <div class="filterbar"><select id="purchase-status"><option value="">全部状态</option><option value="draft">草稿</option><option value="pending_approval">待审批</option><option value="approved">待收货</option><option value="partially_received">部分收货</option><option value="received">已收货</option><option value="cancelled">已取消</option></select><input id="purchase-search" placeholder="搜索采购单号或供应商"><button class="button" id="purchase-filter">查询</button></div>
+          <div class="tabs" data-tabs="purchases"><button class="active" data-tab="orders">采购订单</button><button data-tab="receipts">收货单</button></div>
+          <article class="panel tab-panel" data-tab-panel="orders"><div class="table-scroll" id="purchases-table"></div></article>
+          <article class="panel tab-panel hidden" data-tab-panel="receipts"><div class="table-scroll" id="receipts-table"></div></article>
+        </section>
+
+        <section class="page hidden" id="page-inventory">
+          <div class="page-heading"><div><p class="eyebrow">INVENTORY CONTROL</p><h1>库存管理</h1><p>多仓库、库位、批次、调拨、盘点和不可变流水。</p></div><div class="heading-actions"><button class="button" data-open="serial">登记序列号</button><button class="button" data-open="transfer">库存调拨</button><button class="button" data-open="stock-count">库存盘点</button><button class="button primary" data-open="receive">＋ 其他入库</button></div></div>
+          <div class="tabs" data-tabs="inventory"><button class="active" data-tab="balances">即时库存</button><button data-tab="ledger">库存流水</button><button data-tab="counts">盘点单</button><button data-tab="serials">序列号</button><button data-tab="reorder">补货建议</button></div>
+          <article class="panel tab-panel" data-tab-panel="balances"><div class="table-scroll" id="inventory-table"></div></article>
+          <article class="panel tab-panel hidden" data-tab-panel="ledger"><div class="table-scroll" id="ledger-table"></div></article>
+          <article class="panel tab-panel hidden" data-tab-panel="counts"><div class="table-scroll" id="counts-table"></div></article>
+          <article class="panel tab-panel hidden" data-tab-panel="serials"><div class="table-scroll" id="serials-table"></div></article>
+          <article class="panel tab-panel hidden" data-tab-panel="reorder"><div class="table-scroll" id="reorder-table"></div></article>
+        </section>
+
+        <section class="page hidden" id="page-finance">
+          <div class="page-heading"><div><p class="eyebrow">FINANCE &amp; CONTROL</p><h1>财务中心</h1><p>应收应付、收付款核销、业务总账、库存成本与自动对账。</p></div><button class="button primary" data-open="payment">＋ 登记收付款</button></div>
+          <div class="metric-grid compact" id="finance-metrics"></div>
+          <div class="tabs" data-tabs="finance"><button class="active" data-tab="invoices">发票与应收应付</button><button data-tab="payments">收付款</button><button data-tab="banking">银行对账</button><button data-tab="periods">会计期间</button><button data-tab="aging">应收账龄</button><button data-tab="ledger">业务总账</button><button data-tab="reconciliation">自动对账</button></div>
+          <article class="panel tab-panel" data-tab-panel="invoices"><div class="table-scroll" id="invoices-table"></div></article>
+          <article class="panel tab-panel hidden" data-tab-panel="payments"><div class="table-scroll" id="payments-table"></div></article>
+          <article class="panel tab-panel hidden" data-tab-panel="banking"><header><div><h2>现金与银行管理</h2><p>银行对账单整批校验、收付款匹配、未达账项与总账余额核对</p></div><div class="heading-actions"><button class="button" data-open="bank-account">新增银行账户</button><button class="button primary" data-open="bank-statement">导入对账单</button></div></header><div id="bank-account-summary"></div><div class="table-scroll" id="bank-statements-table"></div></article>
+          <article class="panel tab-panel hidden" data-tab-panel="periods"><header><div><h2>关账控制</h2><p>关账前自动检查未过账单据、库存估值以及子账与总账差异</p></div><button class="button primary" id="close-period" type="button">关闭期间</button></header><div class="table-scroll" id="periods-table"></div></article>
+          <article class="panel tab-panel hidden" data-tab-panel="aging"><div id="aging-report"></div></article>
+          <article class="panel tab-panel hidden" data-tab-panel="ledger"><header><div><h2>试算平衡与会计凭证</h2><p>业务事件自动生成的不可变复式凭证</p></div></header><div id="trial-balance-summary"></div><div class="metric-grid compact" id="financial-statement-summary"></div><div class="table-scroll" id="trial-balance-table"></div><div class="table-scroll" id="journal-table"></div></article>
+          <article class="panel tab-panel hidden" data-tab-panel="reconciliation"><header><div><h2>子账与总账自动对账</h2><p>库存资产、应收、应付与采购暂估必须逐项一致</p></div></header><div id="subledger-reconciliation"></div></article>
+        </section>
+
+        <section class="page hidden" id="page-products">
+          <div class="page-heading"><div><p class="eyebrow">MASTER DATA</p><h1>商品档案</h1><p>SKU、条码、单位、税率、批次策略与库存参数。</p></div><div class="heading-actions"><button class="button" data-open="price-list">新增价目表</button><button class="button primary" data-open="product">＋ 新增商品</button></div></div>
+          <div class="filterbar"><input id="product-search" placeholder="搜索 SKU、名称或条码"><button class="button" id="product-filter">查询</button></div>
+          <div class="tabs" data-tabs="products"><button class="active" data-tab="products">商品</button><button data-tab="pricing">价目表</button></div>
+          <article class="panel tab-panel" data-tab-panel="products"><div class="table-scroll" id="products-table"></div></article>
+          <article class="panel tab-panel hidden" data-tab-panel="pricing"><div class="table-scroll" id="pricing-table"></div></article>
+        </section>
+
+        <section class="page hidden" id="page-partners">
+          <div class="page-heading"><div><p class="eyebrow">BUSINESS PARTNERS</p><h1>客户与供应商</h1><p>往来单位、信用额度、结算周期和联系方式。</p></div><div class="heading-actions"><button class="button" data-open="supplier">＋ 供应商</button><button class="button primary" data-open="customer">＋ 客户</button></div></div>
+          <div class="content-grid equal-grid"><article class="panel"><header><div><h2>客户</h2><p>销售与应收往来方</p></div></header><div class="table-scroll" id="customers-table"></div></article><article class="panel"><header><div><h2>供应商</h2><p>采购与应付往来方</p></div></header><div class="table-scroll" id="suppliers-table"></div></article></div>
+        </section>
+
+        <section class="page hidden" id="page-audit">
+          <div class="page-heading"><div><p class="eyebrow">GOVERNANCE</p><h1>审计与数据治理</h1><p>审计证据、业务对账、风险告警以及受控数据交换。</p></div><div class="heading-actions"><button class="button" id="refresh-alerts">刷新告警</button><button class="button primary" id="run-reconciliation">运行全量对账</button></div></div>
+          <div class="filterbar"><input id="audit-action" placeholder="操作代码，例如 sales.confirm"><input id="audit-entity" placeholder="对象类型"><button class="button" id="audit-filter">查询</button></div>
+          <div class="tabs" data-tabs="audit"><button class="active" data-tab="audit">审计日志</button><button data-tab="reconciliations">业务对账</button><button data-tab="alerts">风险告警</button><button data-tab="exchange">导入与导出</button></div>
+          <article class="panel tab-panel" data-tab-panel="audit"><div class="table-scroll" id="audit-table"></div></article>
+          <article class="panel tab-panel hidden" data-tab-panel="reconciliations"><div class="table-scroll" id="reconciliations-table"></div></article>
+          <article class="panel tab-panel hidden" data-tab-panel="alerts"><div class="table-scroll" id="alerts-table"></div></article>
+          <article class="panel tab-panel hidden" data-tab-panel="exchange"><header><div><h2>两阶段 CSV 导入</h2><p>先完整校验并展示结果，再由用户明确提交；任何错误都不会部分写入</p></div><button class="button primary" data-open="csv-import">校验 CSV</button></header><div class="export-actions"><a class="button" href="/api/v1/exports/products">导出商品</a><a class="button" href="/api/v1/exports/customers">导出客户</a><a class="button" href="/api/v1/exports/suppliers">导出供应商</a><a class="button" href="/api/v1/exports/inventory">导出库存</a></div><div id="import-result"></div></article>
+        </section>
+
+        <section class="page hidden" id="page-delivery">
+          <div class="page-heading"><div><p class="eyebrow">DELIVERY WORKBENCH</p><h1>研发交付工作台</h1><p>从需求、Spec、执行、Eval 到审核结论，保留完整状态与证据链。</p></div><button class="button" id="delivery-refresh" type="button">刷新证据</button></div>
+          <div class="delivery-grid">
+            <article class="panel delivery-create">
+              <header><div><h2>新建交付任务</h2><p>让 Codex 真正修改代码，再由独立 Eval 和具名人工验收把关</p></div></header>
+                <form id="delivery-task-form"><div id="delivery-code-capability" class="execution-capability"></div><div class="form-grid"><label class="form-field">需求编号<input name="requirement_id" placeholder="留空则自动生成"></label><label class="form-field">业务对象引用<input name="business_refs" placeholder="CHANNEL_ORDER:订单号, SKU:NOTEBOOK-AI"></label><label class="form-field">执行模式<select name="execution_mode"><option value="codex" selected>Codex 修改代码</option><option value="verify">只验证现有代码</option></select></label><label class="form-field">允许写入范围<input name="write_scope" value="flowerp, tests" placeholder="flowerp, tests, web"></label><label class="form-field">执行超时（秒）<input name="execution_timeout_seconds" type="number" min="30" max="3600" value="900"></label></div><label class="form-field">需求描述<textarea name="request" rows="5" required minlength="4" placeholder="例如：让渠道订单在库存不足时保留异常、不得部分预占，并能在补货后恢复履约"></textarea></label><label class="execution-consent"><input name="authorize_code" type="checkbox"><span>我确认允许 Codex 仅在上述路径内修改当前工作区代码；越界写入会阻断任务并保留证据。</span></label><div class="form-note">提交后平台自动生成任务级 Spec，调用 Codex 受控改码，记录真实 Diff、命令轨迹和 Token 用量，再运行 Blocking Eval。全绿也只停在“待审核”。</div><button class="button primary wide" type="submit">提交需求并执行交付</button></form>
+            </article>
+            <article class="panel"><header><div><h2>交付概览</h2><p>持久化任务与反馈审核状态</p></div></header><div class="delivery-stats" id="delivery-stats"></div></article>
+          </div>
+          <article class="panel"><header><div><h2>任务队列</h2><p>查看自动推进状态并打开完整证据</p></div></header><div class="table-scroll" id="delivery-tasks-table"></div></article>
+          <article class="panel delivery-detail-panel"><header><div><h2>任务证据</h2><p>Spec、Eval 报告、状态事件与结构化反馈</p></div></header><div id="delivery-task-detail"></div></article>
+          <article class="panel"><header><div><h2>反馈审核池</h2><p>反馈默认待审核，具名接受或驳回后才进入闭环</p></div></header><div class="table-scroll" id="delivery-feedback-table"></div></article>
+          <article class="panel"><header><div><h2>自进化记录</h2><p>只有已接受反馈才能提升；资产升级后必须由下一项独立交付任务验证</p></div></header>
+            <form id="delivery-evolution-form" class="delivery-feedback-form"><div class="form-grid"><label class="form-field">已接受反馈 ID<input name="feedback_id" required placeholder="FB-XXXXXXXX"></label><label class="form-field">稳定失败签名<input name="failure_signature" required maxlength="200" placeholder="delivery/status-drift"></label><label class="form-field">问题分类<select name="classification"><option value="erp_rule">ERP 业务规则</option><option value="erp_workflow">ERP 工作流程</option><option value="workbench_control">工作台控制缺陷</option><option value="workbench_observability" selected>工作台可观测性</option><option value="new_requirement">新业务需求</option></select></label><label class="form-field">业务对象引用<input name="business_refs" placeholder="留空则继承源任务；或填写 SKU:NOTEBOOK-AI"></label></div><button class="button primary" type="submit">建立进化候选</button></form>
+            <form id="delivery-evolution-action-form" class="delivery-feedback-form"><div class="form-grid"><label class="form-field">进化记录 ID<input name="evolution_id" required placeholder="从下表选择操作"></label><label class="form-field">治理动作<select name="operation"><option value="review_approve">批准候选</option><option value="review_reject">驳回候选</option><option value="review_defer">暂缓候选</option><option value="assets">登记 / 追加资产</option><option value="verify">验证进化</option></select></label><label class="form-field">审核理由 / 资产原因<input name="note" placeholder="批准、暂缓和登记资产时必填"></label><label class="form-field">资产类型<select name="asset_type"><option value="eval">Eval</option><option value="spec">Spec</option><option value="rule">Rule</option><option value="skill">Skill</option><option value="harness">Harness</option><option value="implementation">Implementation</option><option value="documentation">Documentation</option></select></label><label class="form-field">资产路径<input name="asset_path" placeholder="tests/test_http_api.py"></label><label class="form-field">下一项 Task ID<input name="candidate_task_id" list="delivery-completed-task-options" placeholder="验证进化时选择另一项已完成任务"></label><datalist id="delivery-completed-task-options"></datalist></div><div class="form-note">Blocking 报告不再手工填写：系统自动绑定候选 Task 的专属报告快照并校验 SHA-256；候选 Task 还必须与本记录共享至少一个 ERP 业务对象。</div><button class="button primary" type="submit">执行治理动作</button></form>
+            <div class="evolution-list" id="delivery-evolution-table"></div>
+          </article>
+        </section>
+
+        <section class="page hidden" id="page-settings">
+          <div class="page-heading"><div><p class="eyebrow">ADMINISTRATION</p><h1>系统与用户</h1><p>账号角色、运行状态与数据安全。</p></div><button class="button primary" data-open="user">＋ 新增用户</button></div>
+            <div class="content-grid equal-grid"><article class="panel"><header><div><h2>用户与角色</h2><p>最小权限与职责分离</p></div></header><div class="table-scroll" id="users-table"></div></article><article class="panel"><header><div><h2>系统状态</h2><p>就绪、容量与恢复点检查</p></div></header><div class="system-checks" id="system-checks"></div></article></div>
+            <article class="panel hidden" id="operations-panel"><header><div><h2>运行控制</h2><p>变更前停止新写入，完成验证后恢复业务</p></div><button class="button danger" id="maintenance-toggle" type="button"></button></header><div class="operations-summary" id="operations-summary"></div></article>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <div class="drawer-backdrop hidden" id="drawer-backdrop"></div>
+  <aside class="drawer hidden" id="drawer" aria-modal="true" role="dialog" aria-labelledby="drawer-title"><header><div><p class="eyebrow" id="drawer-eyebrow">NEW DOCUMENT</p><h2 id="drawer-title">新建单据</h2><p id="drawer-subtitle">填写必要信息后保存</p></div><button class="icon-button" id="drawer-close" aria-label="关闭">×</button></header><div id="drawer-content"></div></aside>
+  <div class="dialog-backdrop hidden" id="dialog-backdrop" aria-modal="true" role="dialog" aria-labelledby="dialog-title"><div class="dialog"><header><span class="dialog-icon" id="dialog-icon">?</span><div><p class="eyebrow">需要您确认</p><h2 id="dialog-title">确认操作</h2></div></header><div id="dialog-content"></div></div></div>
+  <div class="command-backdrop hidden" id="command-backdrop" aria-modal="true" role="dialog" aria-label="全局搜索">
+    <div class="command-panel">
+      <div class="command-input"><span>⌕</span><input id="command-query" placeholder="输入单号、SKU、客户或供应商…" autocomplete="off"><kbd>Esc</kbd></div>
+      <div class="command-results" id="command-results"></div>
+      <footer><span><kbd>↑</kbd><kbd>↓</kbd> 选择</span><span><kbd>Enter</kbd> 前往</span></footer>
+    </div>
+  </div>
+  <div class="toast-stack" id="toast-stack" aria-live="polite"></div>
+  <script src="./app.js?v=35" defer></script>
+</body>
+</html>
