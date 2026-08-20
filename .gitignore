@@ -8,6 +8,7 @@ __pycache__/
 
 docs/
 .codex-tmp/
+.tmp/
 course/
 
 # Distribution / packaging
