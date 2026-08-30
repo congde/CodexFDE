@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0",
-  "lesson_start": 15,
+  "lesson_start": 16,
   "enabled": [
     "inventory_export",
     "receiving_idempotent",
