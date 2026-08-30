@@ -96,6 +96,7 @@ def scaffold_paths() -> list[Path]:
     paths = [
         ROOT / "eval" / "progression.py",
         ROOT / "eval" / "cases.py",
+        ROOT / "eval" / "harness.py",
         ROOT / "course" / "baselines" / "README.md",
         ROOT / "course" / "baselines" / "evidence" / "LXX-baseline-review.md",
         ROOT / "scripts" / "publish_lesson_baseline.py",
@@ -118,14 +119,15 @@ def scaffold_paths() -> list[Path]:
     return paths
 
 
-def build_commits(lessons: range) -> dict[int, str]:
+def build_commits(lessons: range, *, skip_scaffold: bool = False) -> dict[int, str]:
     commits: dict[int, str] = {}
-    present = [path for path in scaffold_paths() if path.exists()]
-    scaffold_sha = commit_paths(
-        "course: baseline progression gate and publish scaffolding",
-        present,
-    )
-    print(f"scaffold={scaffold_sha}")
+    if not skip_scaffold:
+        present = [path for path in scaffold_paths() if path.exists()]
+        scaffold_sha = commit_paths(
+            "course: baseline progression gate and publish scaffolding",
+            present,
+        )
+        print(f"scaffold={scaffold_sha}")
 
     for lesson in lessons:
         payload = progression_payload(lesson)
@@ -170,13 +172,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--lessons", default="1-16", help="Inclusive range, e.g. 1-3 or 4-16 or 1-16")
     parser.add_argument("--publish", action="store_true")
     parser.add_argument("--confirm", action="store_true", help="Create annotated tags")
+    parser.add_argument("--skip-scaffold", action="store_true", help="Do not create scaffolding commit")
+    parser.add_argument("--no-checkout", action="store_true", help="Stay on current branch tip")
     args = parser.parse_args(argv)
 
     start_s, end_s = args.lessons.split("-", 1)
     lessons = range(int(start_s), int(end_s) + 1)
 
-    ensure_branch(args.from_ref)
-    commits = build_commits(lessons)
+    if not args.no_checkout:
+        ensure_branch(args.from_ref)
+    commits = build_commits(lessons, skip_scaffold=args.skip_scaffold)
     print(json.dumps({f"L{k:02d}": v for k, v in commits.items()}, indent=2))
     if args.publish:
         return publish_tags(commits, confirm=args.confirm)
