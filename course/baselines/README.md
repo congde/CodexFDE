@@ -48,6 +48,23 @@ python -X utf8 scripts/build_course_baselines.py --publish --confirm
 
 模板：[`evidence/LXX-baseline-review.md`](evidence/LXX-baseline-review.md)
 
+## 诚实边界（深度优化）
+
+| 项 | 承诺 | 不承诺 |
+| --- | --- | --- |
+| `course_ready` | 本地 16 个起始标签线性、互异，且通过 audit 门禁 | 远端已推送；陌生人零配置开课 |
+| `PROGRESSION.json` | L04+ 起始红 / 上一讲绿的**可复现门闩** | 已按真实 `flowerp` 缺能力切片重写 16 讲产品史 |
+| 终态 `HEAD` | 不提交 `PROGRESSION.json`（或全能力已交付） | 可用终态冒充某一讲起始标签 |
+| OPC / `harness_web` | 可选挑战与驾驶舱 | 大纲 L01～L16 通过标准 |
+| 国家级一流本科 | 建设母版与诚信红线已写入 | 已具备申报资格或已认定 |
+
+开课前讲师清单：
+
+1. `python -X utf8 -m workbench.cli course-status --require-baselines` 退出 0  
+2. `python -X utf8 -m unittest tests.test_course_outline_alignment tests.test_progression tests.test_course_mainline tests.test_course_release -q`  
+3. 向学员说明：跟跑必做入口是 `workbench.cli` / `eval` / `agent.*` / `web/`；基线红绿由标签 + progression 门闩保证  
+4. 若克隆新环境：先取得含标签的仓库，再检查 `course_ready`
+
 ## 一期 / 二期边界
 
 | 阶段 | 范围 | `course-status --require-baselines` |
@@ -55,7 +72,7 @@ python -X utf8 scripts/build_course_baselines.py --publish --confirm
 | 一期 | 工具链 + 叙事 + **L01–L03** 标签 | 仍缺 L04–L16 时 `course_ready=false`（诚实） |
 | 二期 | L04–L16 真渐进红绿态（`PROGRESSION.json` 门闩） | 全绿且 `course_ready: true` |
 
-当前仓库在侧分支 `course/baselines` 上已发布 L01–L16 起始标签；用 `course-status --require-baselines` 复核，勿用终态 `main` HEAD 冒充起始态。
+当前仓库已在 `course/baselines` 祖先链发布 L01–L16 起始标签并合并进 `main`；用 `course-status --require-baselines` 复核，勿用终态 HEAD 冒充起始态。
 
 ## 跟跑入口提醒
 

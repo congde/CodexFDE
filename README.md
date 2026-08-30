@@ -59,7 +59,16 @@ python -X utf8 -m workbench.cli course-spec --lesson 8
 基线发布流程见 [`course/baselines/README.md`](course/baselines/README.md)。
 
 开课就绪：本地存在线性 `course/l01-start`…`course/l16-start` 且  
-`python -X utf8 -m workbench.cli course-status --require-baselines` 退出码 0、`course_ready: true` 时，才可声称支持逐讲红→绿复现。标签在侧分支 `course/baselines` 祖先链上发布，不改写 `main` 历史。
+`python -X utf8 -m workbench.cli course-status --require-baselines` 退出码 0、`course_ready: true` 时，才可声称支持逐讲红→绿复现。标签在侧分支 `course/baselines` 祖先链上发布后已合并进 `main`，不改写远端历史（推送需另行确认）。
+
+开课前建议再跑：
+
+```powershell
+python -X utf8 -m unittest tests.test_course_outline_alignment tests.test_progression tests.test_course_mainline tests.test_course_release tests.test_course_api -q
+python -X utf8 scripts/sync_outline_contracts.py   # 仅当改过大纲合同字段后
+```
+
+L04+ 起始红由 `PROGRESSION.json` 门闩保证（见 `course/baselines/README.md`），不是完整产品缺能力 git 史。
 
 可验收合同见 [`FDE_SPEC.md`](FDE_SPEC.md)。Agent 约束见 [`AGENTS.md`](AGENTS.md)。
 

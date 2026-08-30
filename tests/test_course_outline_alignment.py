@@ -193,7 +193,7 @@ class CourseOutlineAlignmentTests(unittest.TestCase):
             "FlowERP 是客户项目、实验场和验收场",
             "课程治理与申报级约束",
             "学生中心、产出导向、持续改进",
-            "每讲必须回答三问",
+            "每讲必须回答四问",
             "不得用模拟学生数据",
             "待校方确认",
         ):
