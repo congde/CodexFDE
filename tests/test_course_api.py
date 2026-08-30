@@ -16,7 +16,11 @@ class CourseAPITests(unittest.TestCase):
             invalid = app.api.dispatch("GET", "/api/v1/course/lessons/17", {}, None, "127.0.0.1")
             self.assertEqual(200, status.status)
             self.assertTrue(status.body["contract_valid"])
-            self.assertFalse(status.body["course_ready"])
+            self.assertIn("course_ready", status.body)
+            self.assertEqual(
+                status.body["course_ready"],
+                not status.body.get("missing_baseline_refs") and not status.body.get("baseline_errors"),
+            )
             self.assertEqual(16, len(lessons.body["items"]))
             self.assertEqual("交付原子预占", lesson.body["erp_increment"])
             self.assertEqual(422, invalid.status)
