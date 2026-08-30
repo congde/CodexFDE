@@ -21,11 +21,13 @@ class EvalResult:
 
 
 EVALS: list[tuple[str, str, Callable[[], str]]] = [
+    ("inventory_export_is_stable", "blocking", cases.inventory_export_is_stable),
     ("stock_never_negative", "blocking", cases.stock_never_negative),
     ("receiving_is_idempotent", "blocking", cases.receiving_is_idempotent),
     ("cancellation_releases_reservation", "blocking", cases.cancellation_releases_reservation),
     ("illegal_transition_is_blocked", "blocking", cases.illegal_transition_is_blocked),
     ("purchase_requires_approval", "blocking", cases.purchase_requires_approval),
+    ("purchase_request_preserves_reason", "blocking", cases.purchase_request_preserves_reason),
     ("order_total_matches_lines", "blocking", cases.order_total_matches_lines),
     ("ecommerce_channel_order_is_idempotent_and_guarded", "blocking", cases.ecommerce_channel_order_is_idempotent_and_guarded),
     ("production_schema_invariants", "blocking", cases.production_schema_invariants),
@@ -37,14 +39,23 @@ EVALS: list[tuple[str, str, Callable[[], str]]] = [
     ("double_entry_fifo_and_subledger_reconciliation", "blocking", cases.double_entry_fifo_and_subledger_reconciliation),
     ("bank_statement_control_and_reconciliation", "blocking", cases.bank_statement_control_and_reconciliation),
     ("delivery_evidence_and_review_controls", "blocking", cases.delivery_evidence_and_review_controls),
+    ("web_api_and_persistence_projection_agree", "blocking", cases.web_api_and_persistence_projection_agree),
     ("no_committed_secrets", "blocking", cases.no_committed_secrets),
     ("course_assets_present", "observing", cases.course_assets_present),
 ]
 
 
-def run_suite(suite: str = "all", write_report: bool = True) -> dict:
+def run_suite(suite: str = "all", write_report: bool = True,
+              case_names: list[str] | tuple[str, ...] | None = None,
+              report_path: str | Path | None = None) -> dict:
     if suite not in {"all", "blocking", "observing"}: raise ValueError(f"未知 suite：{suite}")
+    available = {name for name, _level, _fn in EVALS}
+    unknown = sorted(set(case_names or ()) - available)
+    if unknown: raise ValueError(f"未知 Eval：{', '.join(unknown)}")
     selected = [item for item in EVALS if suite == "all" or item[1] == suite]
+    if case_names:
+        requested = set(case_names)
+        selected = [item for item in selected if item[0] in requested]
     results: list[EvalResult] = []
     for name, level, fn in selected:
         start = time.perf_counter()
@@ -58,21 +69,29 @@ def run_suite(suite: str = "all", write_report: bool = True) -> dict:
     report = {
         "schema_version": "1.0",
         "suite": suite,
+        "requested_cases": list(case_names or ()),
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "summary": {"total": len(results), "passed": sum(r.passed for r in results), "blocking_failed": blocking_failed, "observing_failed": observing_failed, "decision": "pass" if blocking_failed == 0 else "block"},
         "results": [asdict(r) for r in results],
     }
     if write_report:
-        output = Path(".runtime/reports"); output.mkdir(parents=True, exist_ok=True)
-        (output / f"harness-{suite}.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+        target = Path(report_path) if report_path else Path(".runtime/reports") / f"harness-{suite}.json"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     return report
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Unified FlowERP evaluation harness")
     parser.add_argument("--suite", choices=("all", "blocking", "observing"), default="all")
+    parser.add_argument("--case", action="append", default=[], help="只运行指定 Eval，可重复")
     parser.add_argument("--no-report", action="store_true")
-    args = parser.parse_args(); report = run_suite(args.suite, not args.no_report)
+    parser.add_argument("--report-path", help="将完整 JSON 报告写入指定路径")
+    args = parser.parse_args()
+    try:
+        report = run_suite(args.suite, not args.no_report, args.case or None, args.report_path)
+    except ValueError as exc:
+        parser.error(str(exc))
     for result in report["results"]:
         mark = "PASS" if result["passed"] else ("BLOCK" if result["level"] == "blocking" else "WARN")
         print(f"[{mark:5}] {result['name']:<36} {result['duration_ms']:>5} ms  {result['evidence']}")
