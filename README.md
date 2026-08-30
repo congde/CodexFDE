@@ -58,6 +58,9 @@ python -X utf8 -m workbench.cli course-spec --lesson 8
 
 基线发布流程见 [`course/baselines/README.md`](course/baselines/README.md)。
 
+开课就绪：本地存在线性 `course/l01-start`…`course/l16-start` 且  
+`python -X utf8 -m workbench.cli course-status --require-baselines` 退出码 0、`course_ready: true` 时，才可声称支持逐讲红→绿复现。标签在侧分支 `course/baselines` 祖先链上发布，不改写 `main` 历史。
+
 可验收合同见 [`FDE_SPEC.md`](FDE_SPEC.md)。Agent 约束见 [`AGENTS.md`](AGENTS.md)。
 
 ## 环境要求

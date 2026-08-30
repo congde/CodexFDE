@@ -53,7 +53,9 @@ python -X utf8 scripts/build_course_baselines.py --publish --confirm
 | 阶段 | 范围 | `course-status --require-baselines` |
 | --- | --- | --- |
 | 一期 | 工具链 + 叙事 + **L01–L03** 标签 | 仍缺 L04–L16 时 `course_ready=false`（诚实） |
-| 二期 | L04–L16 真渐进红绿态 | 全绿且 `course_ready: true` |
+| 二期 | L04–L16 真渐进红绿态（`PROGRESSION.json` 门闩） | 全绿且 `course_ready: true` |
+
+当前仓库在侧分支 `course/baselines` 上已发布 L01–L16 起始标签；用 `course-status --require-baselines` 复核，勿用终态 `main` HEAD 冒充起始态。
 
 ## 跟跑入口提醒
 
