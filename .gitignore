@@ -10,6 +10,11 @@ docs/
 .codex-tmp/
 .tmp/
 course/
+!course/baselines/
+!course/baselines/**
+!course/tasks/
+!course/tasks/**
+course/baselines/PROGRESSION.json
 
 # Distribution / packaging
 .Python
