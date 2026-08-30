@@ -39,15 +39,19 @@ def _structured_log(record: dict) -> None:
 
 
 class App:
-    def __init__(self, runtime_dir: str | Path = ".runtime") -> None:
+    def __init__(self, runtime_dir: str | Path = ".runtime", *,
+                 enable_legacy_workbench: bool = False) -> None:
         runtime = Path(runtime_dir)
         self.settings = load_settings(runtime)
         self.store = ERPStore(runtime / "flowerp.db", self.settings.database_busy_timeout_ms)
         # The course V0 data model is physically isolated from the production
         # ledger. It can never mutate /api/v1 balances or documents.
         self.erp = ERPService(ERPStore(runtime / "flowerp-course.db", self.settings.database_busy_timeout_ms))
-        self.tasks = TaskStore(runtime / "workbench.db")
-        self.api = APIRouter(self.store, self.settings, self.tasks)
+        self.tasks = TaskStore(runtime / "workbench.db") if enable_legacy_workbench else None
+        self.api = APIRouter(
+            self.store, self.settings, self.tasks,
+            enable_legacy_workbench=enable_legacy_workbench,
+        )
 
 
 def make_handler(app: App):

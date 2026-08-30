@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Harness · FlowERP 交付</title>
+  <link rel="stylesheet" href="./styles.css?v=18">
+</head>
+<body>
+  <div class="app" id="app">
+    <aside class="sidebar" id="sidebar">
+      <div class="sb-brand">
+        <button type="button" id="toggle-sidebar" class="icon-btn" title="折叠侧栏" aria-label="折叠侧栏">☰</button>
+        <span class="fish" aria-hidden="true">◇</span>
+        <div class="brand-text">
+          <strong>Harness</strong>
+          <span>OPC · Agent 员工</span>
+        </div>
+        <button type="button" id="new-chat" class="icon-btn primary" title="新建交付会话" aria-label="新建会话">＋</button>
+      </div>
+
+      <button type="button" id="pick-workspace" class="ws-chip" title="选择要改的产品代码仓库">
+        <span class="ws-dot" id="ws-dot"></span>
+        <span class="ws-meta">
+          <small>工作区</small>
+          <b id="workspace-label">未选择</b>
+        </span>
+      </button>
+
+      <div class="sb-scroll">
+        <div class="sb-caption">最近交付</div>
+        <div class="filter-row" id="session-filters" role="tablist">
+          <button type="button" class="filter active" data-filter="all">全部</button>
+          <button type="button" class="filter" data-filter="active">进行中</button>
+          <button type="button" class="filter" data-filter="review">待验收</button>
+          <button type="button" class="filter" data-filter="terminal">终态</button>
+        </div>
+        <div id="session-list" class="session-list"></div>
+      </div>
+
+      <div class="sb-foot">
+        <label class="actor">老板身份（你）
+          <input id="actor" placeholder="你的名字" value="boss" autocomplete="username">
+        </label>
+        <div class="role-quick" id="employee-chips" title="Agent 员工班组（不可登录）">
+          <span class="chip-mini" data-emp="agent:spec">规格员</span>
+          <span class="chip-mini" data-emp="agent:coder">工程师</span>
+          <span class="chip-mini" data-emp="agent:reviewer">质检员</span>
+        </div>
+        <div class="sb-links">
+          <button type="button" id="open-help" class="linkish">说明</button>
+          <button type="button" id="open-settings" class="linkish">设置</button>
+        </div>
+      </div>
+    </aside>
+
+    <main class="conversation">
+      <header class="conv-header">
+        <div class="title-block">
+          <h1 id="chat-title">新交付</h1>
+          <p id="chat-sub">提一个 FlowERP 小需求，工作台改代码并跑验收</p>
+        </div>
+        <div class="header-right">
+          <span id="task-badge" class="pill">空闲</span>
+          <div class="view-tabs" role="tablist">
+            <button type="button" class="tab active" data-view="chat" role="tab">对话</button>
+            <button type="button" class="tab" data-view="trajectory" role="tab">过程</button>
+          </div>
+          <div class="more-wrap" id="session-actions" hidden>
+            <button type="button" id="more-toggle" class="ghost-btn" aria-expanded="false" aria-haspopup="true">更多</button>
+            <div class="more-menu" id="more-menu" hidden>
+              <button type="button" id="btn-fork">复制会话再试</button>
+              <button type="button" id="btn-pause">暂停</button>
+              <button type="button" id="btn-resume">继续</button>
+              <button type="button" id="btn-close">结束会话</button>
+              <button type="button" id="btn-export">下载证据包</button>
+              <button type="button" id="btn-details">打开右侧进度</button>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <div id="collab-bar" class="collab-bar" hidden></div>
+
+      <div class="rail" id="progress-rail" hidden>
+        <div class="rail-head">
+          <strong>FlowERP 交付流水线</strong>
+          <span>点击节点展开 · 每步对模型可见</span>
+        </div>
+        <div class="rail-steps" id="rail-steps"></div>
+        <div class="rail-panel" id="rail-panel" hidden></div>
+      </div>
+
+      <div id="review-banner" class="review-banner" hidden></div>
+      <div id="recovery-banner" class="recovery-banner" hidden></div>
+
+      <div class="conv-body" data-conversation-scroll>
+        <div id="view-chat" class="view">
+          <div id="empty-state" class="hero">
+            <ol class="steps-guide">
+              <li><b>选工作区</b><span>左侧点工作区，默认 FlowERP 代码库</span></li>
+              <li><b>老板下需求</b><span>你是超级个体；规格员/工程师/质检员都是 Agent 员工</span></li>
+              <li><b>你终审</b><span>员工跑完流水线后停在「待验收」，由老板具名通过或驳回</span></li>
+            </ol>
+            <p class="hero-note">这是 <strong>OPC 交付台</strong>：一人指挥多名 Agent 员工改 FlowERP 代码。不是多用户账号，也不是库存业务后台。</p>
+            <div class="example-prompts">
+              <button type="button" class="example" data-prompt="给 FlowERP 增加：创建订单时若可用库存不足则明确失败，且不得预占库存。">库存不足拒单</button>
+              <button type="button" class="example" data-prompt="给 FlowERP 增加：同一入库幂等键只能生效一次，重复提交返回已有结果。">入库幂等</button>
+              <button type="button" class="example" data-prompt="给 FlowERP 增加：采购补货必须人工审批后才能入库。">采购须审批</button>
+            </div>
+          </div>
+          <div id="message-stream" class="transcript" hidden></div>
+        </div>
+
+        <div id="view-trajectory" class="view" hidden>
+          <div class="traj-overview" id="traj-overview">过程账本：谁在何时做了什么（答辩复盘用）</div>
+          <div class="filter-row traj-filters" id="traj-filters" role="tablist">
+            <button type="button" class="filter active" data-traj="all">全部</button>
+            <button type="button" class="filter" data-traj="boss">老板</button>
+            <button type="button" class="filter" data-traj="agent:spec">规格员</button>
+            <button type="button" class="filter" data-traj="agent:coder">工程师</button>
+            <button type="button" class="filter" data-traj="agent:reviewer">质检员</button>
+          </div>
+          <div id="traj-table" class="traj-table"></div>
+        </div>
+      </div>
+
+      <footer class="composer-stack">
+        <div class="composer-card" id="composer-card">
+          <textarea id="prompt" rows="3" placeholder="描述要对 FlowERP 做的改动… Enter 发送，Shift+Enter 换行"></textarea>
+          <div class="composer-foot">
+            <button type="button" id="toggle-advanced" class="linkish">选项</button>
+            <span id="composer-hint" class="hint">先选择工作区</span>
+            <button type="button" id="send" class="send" disabled>开始交付</button>
+          </div>
+          <div class="advanced" id="advanced" hidden>
+            <button type="button" class="chip active" data-mode="standard" title="改代码并跑验收">改代码+验收</button>
+            <button type="button" class="chip" data-mode="verify" id="mode-verify" title="只跑验收">只跑验收</button>
+            <label class="tiny"><input id="execute-code" type="checkbox" checked> 允许改代码</label>
+            <select id="profile-id" class="mini" title="能力组合"></select>
+            <input id="requirement-id" class="mini" placeholder="REQ-编号（可选）">
+            <input id="write-scope" class="mini grow" value="flowerp,tests" title="可写目录" placeholder="可写目录">
+          </div>
+        </div>
+      </footer>
+    </main>
+
+    <aside class="details" id="details" hidden>
+      <div class="details-head">
+        <div>
+          <strong id="details-title">交付进度</strong>
+          <span id="details-kind">这次改代码任务走到哪一步</span>
+        </div>
+        <button type="button" id="close-details" class="icon-btn" title="关闭">✕</button>
+      </div>
+      <div id="details-body" class="details-body"></div>
+      <div id="trail-review" class="details-review"></div>
+    </aside>
+  </div>
+
+  <dialog id="help-dialog">
+    <form method="dialog" class="dlg">
+      <header><h2>这是什么？</h2><button value="close" class="icon-btn">✕</button></header>
+      <div class="help-body">
+        <p><strong>FlowERP</strong>：要持续交付的电商 ERP（库存、订单、采购）。</p>
+        <p><strong>Harness</strong>：研发自动化工作台——接需求、受控改代码、跑 Eval、留证据、老板终审。</p>
+        <p><strong>OPC 定位</strong>：可选挑战——超级个体带着 Agent 员工干活。规格员 / 工程师 / 质检员是 Agent，不是多用户账号。<strong>不是</strong>大纲 L01～L16 通过标准；结业仍以 Eval / 具名人审 / 证据链为准。</p>
+        <p><strong>职责分离</strong>：工程师改代码，质检员挑刺，只有老板能终审通过；Agent 不能 approve。</p>
+        <p><strong>侧栏筛选</strong>：全部 / 进行中 / 待验收 / 终态。</p>
+        <p><strong>死信</strong>：自动化耗尽后的终态。用「复制会话再试」并启用改代码继续。</p>
+        <p><strong>顶部进度条</strong>：跟踪「这一次改 FlowERP」的流水线与值班员工。</p>
+        <p><strong>过程页</strong>：事件账本（含 agent:* 员工 actor），用于复盘和答辩。</p>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="workspace-dialog">
+    <form method="dialog" class="dlg">
+      <header><h2>选择工作区</h2><button value="cancel" class="icon-btn">✕</button></header>
+      <div id="workspace-options" class="ws-list"></div>
+      <p class="note">默认应是 FlowERP 仓库。没有项目就打开「设置」注册，或用 <code>serve-web --bootstrap</code>。</p>
+    </form>
+  </dialog>
+
+  <dialog id="settings">
+    <form method="dialog" class="dlg wide">
+      <header><h2>设置</h2><button value="close" class="icon-btn">✕</button></header>
+      <section>
+        <h3>运行能力</h3>
+        <div id="capability-cards" class="card-grid"></div>
+      </section>
+      <section>
+        <h3>注册项目</h3>
+        <label>名称<input id="proj-name" placeholder="FlowERP"></label>
+        <label>根目录<input id="proj-root" placeholder="D:\work\CodexFDE"></label>
+        <label>Eval 命令（JSON）<textarea id="proj-eval">[".venv\\Scripts\\python.exe","-X","utf8","-m","eval.harness","--suite","blocking","--report-path","{report_path}"]</textarea></label>
+        <button type="button" id="register-project" class="send">注册</button>
+        <div id="project-cards" class="card-grid"></div>
+      </section>
+      <section>
+        <h3>配置 / 插件 / 工具</h3>
+        <div id="profile-cards" class="card-grid"></div>
+        <div id="plugin-cards" class="plugin-list"></div>
+        <div id="tool-cards" class="card-grid"></div>
+      </section>
+    </form>
+  </dialog>
+
+  <select id="project-id" hidden></select>
+  <div id="toast" role="status" aria-live="polite"></div>
+  <script src="./app.js?v=18" defer></script>
+</body>
+</html>

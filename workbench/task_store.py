@@ -12,14 +12,15 @@ from .execution import normalize_write_scope
 
 
 VALID_TRANSITIONS = {
-    "queued": {"spec_ready", "failed"},
-    "spec_ready": {"executing", "failed"},
-    "executing": {"evaluating", "failed"},
-    "evaluating": {"review", "rework", "failed"},
-    "review": {"completed", "rework", "failed"},
-    "rework": {"executing", "failed"},
+    "queued": {"spec_ready", "failed", "dead_letter"},
+    "spec_ready": {"executing", "failed", "dead_letter"},
+    "executing": {"evaluating", "rework", "failed", "dead_letter"},
+    "evaluating": {"review", "rework", "failed", "dead_letter"},
+    "review": {"completed", "rework", "failed", "dead_letter"},
+    "rework": {"executing", "failed", "dead_letter"},
     "completed": set(),
-    "failed": set(),
+    "failed": {"dead_letter"},
+    "dead_letter": set(),
 }
 
 
@@ -269,18 +270,18 @@ class TaskStore:
         return self.get(task_id)
 
     def review(self, task_id: str, reviewer: str, decision: str, note: str) -> dict:
-        reviewer = reviewer.strip()
+        from .agent_roster import assert_boss_actor
+
+        reviewer = assert_boss_actor(reviewer)
         decision = decision.strip().lower()
         note = note.strip()
-        if not reviewer:
-            raise ValueError("审核人不能为空")
         if decision not in {"approve", "reject"}:
             raise ValueError("审核决定必须是 approve 或 reject")
         if not note:
             raise ValueError("审核理由不能为空")
         target = "completed" if decision == "approve" else "rework"
         return self.transition(
-            task_id, target, f"人工审核：{decision}；{note}", actor=reviewer,
-            evidence={"reviewer": reviewer, "decision": decision, "note": note},
+            task_id, target, f"老板终审：{decision}；{note}", actor=reviewer,
+            evidence={"reviewer": reviewer, "decision": decision, "note": note, "opc_final": True},
             reviewer=reviewer, review_decision=decision, review_note=note,
         )

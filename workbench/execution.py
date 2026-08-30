@@ -15,6 +15,7 @@ from typing import Callable, Iterator
 
 
 ProcessRunner = Callable[..., subprocess.CompletedProcess]
+CodexLineCallback = Callable[[str], None]
 
 _EXCLUDED_DIRS = {".git", ".runtime", ".tmp", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache"}
 _PROTECTED_PARTS = {".git", ".runtime", ".tmp", ".codex", "__pycache__"}
@@ -126,7 +127,7 @@ class CodexExecutionRunner:
             "reason": "ready" if probe.returncode == 0 else f"Codex CLI 探测失败：{version}",
         }
 
-    def __call__(self, task: dict) -> dict:
+    def __call__(self, task: dict, *, on_codex_line: CodexLineCallback | None = None) -> dict:
         mode = str(task.get("execution_mode", "verify"))
         if mode == "verify":
             return {
@@ -144,9 +145,16 @@ class CodexExecutionRunner:
         if not 30 <= timeout <= 3600:
             raise ValueError("execution_timeout_seconds 必须在 30..3600")
         with self._process_lock, self._workspace_lock(timeout=min(timeout, 60)):
-            return self._run_codex(task, scopes, timeout)
+            return self._run_codex(task, scopes, timeout, on_codex_line=on_codex_line)
 
-    def _run_codex(self, task: dict, scopes: list[str], timeout: int) -> dict:
+    def _run_codex(
+        self,
+        task: dict,
+        scopes: list[str],
+        timeout: int,
+        *,
+        on_codex_line: CodexLineCallback | None = None,
+    ) -> dict:
         task_id = str(task["id"])
         run_dir = self.runtime_dir / "delivery" / task_id
         run_dir.mkdir(parents=True, exist_ok=True)
@@ -163,23 +171,30 @@ class CodexExecutionRunner:
             "--cd", str(self.workspace_root), "-",
         ]
         started = time.monotonic()
-        try:
-            completed = self.process_runner(
-                command, input=prompt, text=True, capture_output=True, timeout=timeout,
-                check=False, cwd=self.workspace_root,
+        timed_out = False
+        launch_error = ""
+        if on_codex_line is not None and self.process_runner is subprocess.run:
+            completed = self._run_codex_streaming(
+                command, prompt, timeout, on_codex_line, started,
             )
-            timed_out = False
-            launch_error = ""
-        except subprocess.TimeoutExpired as exc:
-            completed = subprocess.CompletedProcess(
-                command, 124, stdout=_text(exc.stdout), stderr=_text(exc.stderr),
-            )
-            timed_out = True
-            launch_error = f"Codex 执行超过 {timeout} 秒"
-        except OSError as exc:
-            completed = subprocess.CompletedProcess(command, 127, stdout="", stderr=str(exc))
-            timed_out = False
-            launch_error = f"Codex CLI 无法启动：{type(exc).__name__}: {exc}"
+            timed_out = completed.returncode == 124
+            if timed_out:
+                launch_error = f"Codex 执行超过 {timeout} 秒"
+        else:
+            try:
+                completed = self.process_runner(
+                    command, input=prompt, text=True, capture_output=True, timeout=timeout,
+                    check=False, cwd=self.workspace_root,
+                )
+            except subprocess.TimeoutExpired as exc:
+                completed = subprocess.CompletedProcess(
+                    command, 124, stdout=_text(exc.stdout), stderr=_text(exc.stderr),
+                )
+                timed_out = True
+                launch_error = f"Codex 执行超过 {timeout} 秒"
+            except OSError as exc:
+                completed = subprocess.CompletedProcess(command, 127, stdout="", stderr=str(exc))
+                launch_error = f"Codex CLI 无法启动：{type(exc).__name__}: {exc}"
         duration_ms = int((time.monotonic() - started) * 1000)
         after = self._snapshot()
         changes = self._changes(before, after)
@@ -222,6 +237,54 @@ class CodexExecutionRunner:
             json.dumps(evidence, ensure_ascii=False, indent=2), encoding="utf-8",
         )
         return evidence
+
+    def _run_codex_streaming(
+        self,
+        command: list[str],
+        prompt: str,
+        timeout: int,
+        on_codex_line: CodexLineCallback,
+        started: float,
+    ) -> subprocess.CompletedProcess:
+        stdout_parts: list[str] = []
+        stderr_parts: list[str] = []
+        try:
+            process = subprocess.Popen(
+                command,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                cwd=self.workspace_root,
+            )
+        except OSError as exc:
+            return subprocess.CompletedProcess(command, 127, stdout="", stderr=str(exc))
+        assert process.stdin is not None
+        process.stdin.write(prompt)
+        process.stdin.close()
+        deadline = started + timeout
+        while True:
+            if process.stdout and not process.stdout.closed:
+                line = process.stdout.readline()
+                if line:
+                    stdout_parts.append(line)
+                    on_codex_line(line.rstrip("\n"))
+                    continue
+            if process.poll() is not None:
+                break
+            if time.monotonic() >= deadline:
+                process.kill()
+                return subprocess.CompletedProcess(
+                    command, 124, stdout="".join(stdout_parts), stderr="".join(stderr_parts),
+                )
+            time.sleep(0.05)
+        if process.stdout:
+            stdout_parts.append(process.stdout.read() or "")
+        if process.stderr:
+            stderr_parts.append(process.stderr.read() or "")
+        return subprocess.CompletedProcess(
+            command, int(process.returncode or 0), stdout="".join(stdout_parts), stderr="".join(stderr_parts),
+        )
 
     def _snapshot(self) -> dict[str, _FileState]:
         result: dict[str, _FileState] = {}

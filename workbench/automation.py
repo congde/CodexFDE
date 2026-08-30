@@ -12,6 +12,8 @@ from .spec import normalize_business_refs, normalize_requirement_id, write_deliv
 from .task_store import TaskStore
 from .workflow import run_task
 
+AgentRunner = Callable[[str, str, str], dict]
+
 
 SuiteRunner = Callable[..., dict]
 ExecutionRunner = Callable[[dict], dict]
@@ -26,14 +28,20 @@ class DeliveryAutomation:
 
     def __init__(self, store: TaskStore, runtime_dir: str | Path,
                  suite_runner: SuiteRunner = run_suite, max_workers: int = 2,
-                 execution_runner: ExecutionRunner | None = None) -> None:
+                 execution_runner: ExecutionRunner | None = None,
+                 max_attempts: int = 3,
+                 agent_runner: AgentRunner | None = None) -> None:
         if max_workers < 1:
             raise ValueError("max_workers 必须至少为 1")
+        if not 1 <= max_attempts <= 10:
+            raise ValueError("max_attempts 必须在 1 到 10 之间")
         self.store = store
         self.runtime_dir = Path(runtime_dir).resolve()
         self.suite_runner = suite_runner
         self.execution_runner = execution_runner
+        self.agent_runner = agent_runner
         self.max_workers = max_workers
+        self.max_attempts = max_attempts
         self._lock = threading.Lock()
         self._threads: dict[str, threading.Thread] = {}
         self._pending: list[tuple[str, str]] = []
@@ -114,22 +122,62 @@ class DeliveryAutomation:
         return self.store.get(task_id)
 
     def _execute(self, task_id: str, actor: str) -> None:
+        retry = False
         try:
+            attempts = sum(
+                event["detail"] == "自动流水线开始推进"
+                for event in self.store.get(task_id).get("events", [])
+            ) + 1
             self.store.append_event(
                 task_id, "自动流水线开始推进", actor=actor,
                 evidence={
                     "stages": ["spec", "execute", "blocking_eval", "human_review"],
                     "human_review_is_automatic": False,
+                    "attempt": attempts,
+                    "max_attempts": self.max_attempts,
                 },
             )
-            run_task(
-                self.store, task_id, actor=actor, suite_runner=self.suite_runner,
-                execution_runner=self.execution_runner,
-            )
+            suite_runner = self.suite_runner
+            if hasattr(suite_runner, "for_task"):
+                suite_runner = suite_runner.for_task(self.store.get(task_id))
+            if self.agent_runner:
+                result = self.agent_runner(task_id, actor)
+            else:
+                result = run_task(
+                    self.store, task_id, actor=actor, suite_runner=suite_runner,
+                    execution_runner=self.execution_runner,
+                )
+            if result["status"] == "rework" and attempts < self.max_attempts:
+                retry = True
+                self.store.append_event(
+                    task_id, "自动流水线安排有界重试", actor=actor,
+                    evidence={
+                        "attempt": attempts,
+                        "next_attempt": attempts + 1,
+                        "max_attempts": self.max_attempts,
+                        "last_error": result.get("error"),
+                        "last_eval": (result.get("result") or {}).get("summary"),
+                    },
+                )
+            elif result["status"] in {"rework", "failed"}:
+                self.store.transition(
+                    task_id, "dead_letter", "自动流水线已耗尽重试或遇到不可重试失败，转人工处理",
+                    actor=actor,
+                    evidence={
+                        "attempts": attempts,
+                        "max_attempts": self.max_attempts,
+                        "last_status": result["status"],
+                        "last_error": result.get("error"),
+                        "last_eval": (result.get("result") or {}).get("summary"),
+                    },
+                    error=result.get("error") or "自动流水线未能收敛",
+                )
         finally:
             next_item: tuple[str, str] | None = None
             with self._lock:
                 self._threads.pop(task_id, None)
+                if retry:
+                    self._pending.append((task_id, actor))
                 if self._pending:
                     next_item = self._pending.pop(0)
             if next_item:
@@ -153,8 +201,8 @@ class DeliveryAutomation:
             # blocking-Eval result. During restart recovery a worker owns that
             # checkpoint, so returning it early would leave SQLite in use and
             # expose an intermediate state as the final outcome.
-            if task["status"] in {"review", "completed", "failed"} or (
-                task["status"] == "rework" and not active
+            if task["status"] in {"review", "completed", "dead_letter"} or (
+                task["status"] in {"rework", "failed"} and not active
             ):
                 return task
             remaining = deadline - time.monotonic()

@@ -1,19 +1,22 @@
-# Codex + FDE 行动营｜个人研发自动化工作台
+# Codex + FDE 行动营｜工作台驱动的电商 ERP 持续交付系统
 
-在真实业务交付中建设一套可复用的研发自动化工作台：把模糊需求变成可验收 Spec，用统一 Eval 收口质量，用有界 Loop / Graph 处理失败，再用 API、Web 与反馈把结果变成可追溯交付。
+先建设一套类似 DeepSeek Harness 的个人研发自动化工作台，再通过它持续构建电商 FlowERP：把模糊需求变成可验收 Spec，用统一 Eval 收口质量，用有界 Loop / Graph 处理失败，再用 API、Web 与反馈完成下一轮产品交付。
 
-**FlowERP** 是本仓库的客户项目、实验场和验收场——提供真实需求、业务不变量、失败代价和采用反馈。它服务于工作台建设，不是一门 ERP 功能开发课。
+**Harness Workbench 是独立平台，不是 FlowERP 的子模块。** 它拥有独立进程、Web、API、项目注册表和 `.harness-runtime/` 数据库；FlowERP 是由它管理和持续交付的第一个目标项目。FlowERP 不是背景案例或冻结测试夹具，两者以“平台管理目标项目”的方式共同组成结业作品。
+
+平台架构参考 DeepSeek 官方 Harness 的插件化、Profile、capability seam 和追加式 Session 日志思想，但课程 V0 是 Python 标准库的教学实现，不复制 Cordis 内核，也不宣称功能等价。版本化对照见 [`DeepSeek Harness 参考架构与差距`](docs/courses/DeepSeek-Harness参考架构与差距.md)。
 
 ```text
-主线作品：个人研发自动化工作台
-真实现场：FlowERP 连续开发与交付
+方法主线：L01–L04 构建 Workbench V0，后续持续升级
+产品主线：通过工作台逐讲构建 FlowERP
 学习证据：判断、实现、失败、修订、互评、迁移与答辩
 ```
 
 交付主链路：
 
 ```text
-Spec → Eval → Harness → 失败任务 → Loop / Graph → API / Web → Feedback → Evolution
+ERP 需求 → Spec → 工作台受控实现 → Eval / Harness → Repair / Loop / Graph
+→ ERP 增量验收 → API / Web → Feedback → 下一次 ERP 交付
 ```
 
 ## 仓库里有什么
@@ -24,11 +27,36 @@ Spec → Eval → Harness → 失败任务 → Loop / Graph → API / Web → Fe
 | `eval/` | 唯一质量入口；Hook、CI、Loop、Graph 都复用它 |
 | `agent/` | 失败任务映射、有界 Loop、显式状态图与人工审核 |
 | `flowerp/` | ERP 领域模型、SQLite 持久化与业务不变量 |
-| `web/` | 无密钥演示面板（ERP + 交付状态） |
+| `harness_web/` | **可选** Harness 平台驾驶舱（非大纲必做；含 OPC 视图） |
+| `web/` | FlowERP 业务系统前端（课程跟跑必做），不承载 Harness 页面 |
 | `tests/` | 单元、集成、HTTP、并发与恢复测试 |
 | `deploy/` | 容器化与冷启动 |
 | `course/tasks/` | 16 讲目标卡、命令卡、验收卡（本地课件） |
+| `course/baselines/` | 逐讲起始基线发布说明与人工证据模板 |
 | `docs/` | 大纲合同、讲义与产品文档（本地资料） |
+
+## 课程跟跑主路径 vs 可选驾驶舱
+
+课表合同唯一事实源：[`docs/课程大纲-Codex-FDE行动营-个人研发自动化工作台.md`](docs/课程大纲-Codex-FDE行动营-个人研发自动化工作台.md)。  
+机器投影：`workbench/course_mainline.py`（不是第二份大纲）。
+
+| 用途 | 命令 / 目录 |
+| --- | --- |
+| **跟跑必做** | `workbench.cli`、`eval.harness`、`agent.loop` / `agent.graph`、`web/`（FlowERP） |
+| **可选平台驾驶舱** | `harness-workbench serve-web` → `harness_web/`（8010） |
+| **可选 OPC 挑战** | Agent 员工班组视图；**不是** L01～L16 通过标准，不能替代具名人审 |
+
+```powershell
+# 开课就绪检查（缺 course/lNN-start 时 course_ready=false，属诚实状态）
+python -X utf8 -m workbench.cli course-status
+python -X utf8 -m workbench.cli course-status --require-baselines
+
+# 单讲合同 / Spec
+python -X utf8 -m workbench.cli course-contract --lesson 8
+python -X utf8 -m workbench.cli course-spec --lesson 8
+```
+
+基线发布流程见 [`course/baselines/README.md`](course/baselines/README.md)。
 
 可验收合同见 [`FDE_SPEC.md`](FDE_SPEC.md)。Agent 约束见 [`AGENTS.md`](AGENTS.md)。
 
@@ -36,7 +64,123 @@ Spec → Eval → Harness → 失败任务 → Loop / Graph → API / Web → Fe
 
 - Python 3.10+
 - Windows / macOS / Linux
-- 课程跟跑线只依赖 Python 标准库与 SQLite，不需要第三方包
+- 课程跟跑线只依赖 Python 标准库与 SQLite，**运行时不需要第三方包**
+- 仍建议使用虚拟环境：隔离解释器、固定工作区安装方式，避免污染系统 Python
+
+```bash
+# 创建并激活虚拟环境（需 Python 3.10+；Windows 可用 py -3.11 / py -3.12）
+py -3.11 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+
+# macOS / Linux
+# python3 -m venv .venv && source .venv/bin/activate
+
+# 以可编辑模式安装本仓库（dependencies=[]，不会拉第三方业务包）
+python -m pip install -U pip
+python -m pip install -e .
+```
+
+激活后有两个独立产品入口：`flowerp` 启动 ERP；`harness-workbench` 启动研发自动化平台（**默认进入终端 REPL**）。`python -m workbench.cli …` 是工作台的批处理与课程命令入口。
+
+**若提示找不到 `harness-workbench` 或 `flowerp` 命令**，说明尚未执行 `pip install -e .`。可先直接用模块方式启动（见下文「工作台怎么启动」），或补装：
+
+```powershell
+python -m pip install -U pip
+python -m pip install -e .
+```
+
+## 工作台怎么启动
+
+Harness Workbench **终端优先**：主界面是 CLI 交互式 REPL（`harness>`），不是网页。  
+Web 面板是**可选**可视化辅助，需要另开命令启动。
+
+### 启动后只有 CLI、没有网页？——正常
+
+运行 `harness-workbench` 后出现类似输出，说明已经启动成功：
+
+```text
+(.venv) PS D:\work\CodexFDE> harness-workbench
+bootstrap: exists · PROJECT-FLOWERP · D:\work\CodexFDE
+Harness Workbench · 终端控制面。输入 help 查看命令，quit 退出。
+harness>
+```
+
+| 入口 | 命令 | 是什么 |
+| --- | --- | --- |
+| **主界面（默认）** | `harness-workbench` | 终端控制面 REPL（`harness>`） |
+| **可选网页** | `harness-workbench serve-web --bootstrap` | 浏览器 Agent 控制台 <http://127.0.0.1:8010/>（中文：会话对话 + 轨迹） |
+
+
+在 `harness>` 里可直接敲 `help`、`status`、`submit` 等，**不必开网页也能用完整工作台**。  
+若要网页：另开一个终端执行 `serve-web`（当前 `harness>` 会话可继续保留）。
+
+### 1. 安装（首次）
+
+```powershell
+cd d:\work\CodexFDE
+.\.venv\Scripts\Activate.ps1
+python -m pip install -e .
+```
+
+### 2. 主入口：交互终端
+
+```powershell
+# 已 pip install -e . 后
+harness-workbench
+
+# 未安装控制台脚本时（等价）
+python -X utf8 -m workbench.harness_cli
+```
+
+进入 `harness>` 后常用命令：
+
+```text
+harness> help
+harness> status
+harness> bootstrap
+harness> submit --req REQ-ERP-001 --scope flowerp,tests 验证库存预占规则
+harness> tasks
+harness> task TASK-XXXXXXXXXX
+harness> session SESSION-XXXXXXXXXXXX
+harness> tools
+harness> agent SESSION-XXXXXXXXXXXX
+harness> review TASK-XXX --decision approve --note "blocking 全绿，接受交付"
+harness> quit
+```
+
+### 3. 非交互常用命令
+
+```powershell
+harness-workbench bootstrap
+harness-workbench status
+harness-workbench composition --profile PROFILE-HEADLESS
+harness-workbench dump-config
+harness-workbench run --request "验证库存预占" --requirement-id REQ-001
+harness-workbench --json mcp status
+```
+
+`run` 对标 dsh headless：最终助手答案打 **stdout**，状态元数据打 **stderr**，退出码 `0/1`。
+
+### 4. 可选：Web 面板（8010）
+
+需要浏览器界面时，**另开一个终端**执行（不要关掉现有的 `harness>`）：
+
+```powershell
+harness-workbench serve-web --bootstrap
+# 或
+python -X utf8 -m workbench.platform_server --bootstrap
+```
+
+浏览器打开 <http://127.0.0.1:8010/>。Web 为中文界面，使用官方 DeepSeek Harness 的 `--dsw-*` 色板与三栏布局（侧栏 · 对话/轨迹 · 详情）。这是课程 V0 的**可选**视觉驾驶舱，**不是**官方 Cordis/React 产品本体，也**不是**大纲 L01～L16 跟跑必做。OPC「超级个体 + Agent 员工」为可选挑战皮肤。若看到旧页面请 **Ctrl+F5** 强刷。
+
+## 两个产品，别混端口
+
+| 产品 | 作用 | 默认入口 | 运行数据 |
+| --- | --- | --- | --- |
+| **Harness Workbench** | 研发自动化平台：终端 REPL / Spec / Eval / 审核 | **终端** `harness-workbench`；可选 Web **8010** | `.harness-runtime/` |
+| **FlowERP** | 电商 ERP 业务系统：库存、订单、采购、Web | **8000** | `.runtime/` |
+
+两者可同时运行，数据库与进程物理隔离。
 
 ## 5 分钟跑通
 
@@ -47,16 +191,40 @@ python -X utf8 -m workbench.cli demo
 # 阻断级 Eval（唯一质量入口）
 python -X utf8 -m eval.harness --suite blocking
 
-# 可选：启动 Web
+# 初始化 Harness 平台并注册当前仓库为默认目标项目 PROJECT-FLOWERP
+python -X utf8 -m workbench.cli harness-bootstrap
+# 或：harness-workbench bootstrap
+
+# 启动独立 Harness 平台（终端主入口）
+# 方式 A：已 pip install -e . 时
+harness-workbench
+
+# 方式 B：未安装控制台脚本时（等价）
+python -X utf8 -m workbench.harness_cli
+
+# 可选：再开一个终端启动 Web 面板（8010）
+harness-workbench serve-web --bootstrap
+# 或：python -X utf8 -m workbench.platform_server --bootstrap
+
+# 另一个终端启动 FlowERP 业务系统
 python -X utf8 -m workbench.cli init --organization "FlowERP" --username admin
-python -X utf8 -m workbench.cli serve --host 127.0.0.1 --port 8000
+python -X utf8 main.py --host 127.0.0.1 --port 8000
 ```
 
-浏览器打开 <http://127.0.0.1:8000/>。运行数据默认写入 `.runtime/`，不会提交到 Git。
+Harness 主控制面是终端 REPL（`harness>`）。使用 `bootstrap` / `--bootstrap` 或先跑 `harness-bootstrap` 时，FlowERP 仓库会自动注册为 `PROJECT-FLOWERP`。可选 Web 打开 <http://127.0.0.1:8010/>。FlowERP 打开 <http://127.0.0.1:8000/>。
+
+在 Harness Web（可选）中：右上角填写具名操作者 → 提交任务 → 等状态到 `review` → 点「查看」→ 填写审核理由 → 提交，任务才会进入 `completed`。终端侧用 `submit` / `review` 完成同一流程。
+
+```bash
+# 若 8000 已被占用，可换端口
+python -X utf8 main.py --host 127.0.0.1 --port 8001
+```
 
 `init` 会交互式设置管理员密码（至少 10 位）。也可跳过 `init`，在首次打开的初始化页创建组织和管理员。
 
 ## 工作台怎么用
+
+独立平台通过项目注册表连接任意 Git 工作区；任务以 `PROJECT:PROJECT-ID` 稳定引用目标项目，Eval 和 Codex 均在注册的项目根目录执行。写 API 只监听本机地址，并要求 `X-Workbench-Actor` 与 `Idempotency-Key`。浏览器界面会自动提供这两项本地操作证据。
 
 ### 一条命令提交交付任务
 
@@ -104,6 +272,71 @@ python -X utf8 -m agent.graph --state-file .runtime/delivery-review.json \
 ```
 
 Loop 只在有失败时生成修复任务，并受轮数、时间、无进展与实测 Token 预算约束。Graph 显式表达评估、修复、复验与人工审核状态。
+
+## 启动与排错
+
+### 启动后只有 `harness>`、没有网页界面？
+
+这是预期行为。`harness-workbench` 的主界面就是终端 CLI；网页需另开：
+
+```powershell
+harness-workbench serve-web --bootstrap
+```
+
+打开 <http://127.0.0.1:8010/> 后应看到面向 FlowERP 交付的工作台：顶部常驻进度条（需求→规格→改代码→验收→你确认）、待验收横幅、右侧进度详情。次要操作收在「更多」。若仍是旧页面，强制刷新（Ctrl+F5）。
+
+详见上文「工作台怎么启动」。
+
+### `harness-workbench` 无法识别
+
+PowerShell 报「无法将 harness-workbench 项识别为 cmdlet」时，通常是虚拟环境里还没 `pip install -e .`。
+
+**立即可用（无需安装脚本）——终端主入口：**
+
+```powershell
+python -X utf8 -m workbench.harness_cli
+```
+
+**可选 Web 面板：**
+
+```powershell
+python -X utf8 -m workbench.platform_server --bootstrap
+# 或
+python -X utf8 -m workbench.cli harness-serve --bootstrap
+```
+
+**想用短命令时：**
+
+```powershell
+python -m pip install -e .
+harness-workbench
+harness-workbench serve-web --bootstrap
+```
+
+### FlowERP 启动报 `WinError 10013` / 端口绑定失败
+
+多半是 **8000 已被占用**（常见是之前已有一个 `python main.py` 在跑），不是管理员权限问题。
+
+```powershell
+# 查看占用 8000 的进程
+netstat -ano | findstr ":8000"
+
+# 若确认是旧实例，结束进程（把 PID 换成 netstat 最后一列）
+Stop-Process -Id <PID> -Force
+
+# 或直接换端口
+python -X utf8 main.py --port 8001
+```
+
+若 <http://127.0.0.1:8000/> 已能打开 FlowERP 页面，说明服务已在运行，无需再启一次。
+
+### Harness 与 FlowERP 命令对照
+
+| 目标 | 推荐命令 | 入口 |
+| --- | --- | --- |
+| 研发工作台（终端） | `harness-workbench` 或 `python -X utf8 -m workbench.harness_cli` | `harness>` REPL |
+| 研发工作台（可选 Web） | `harness-workbench serve-web --bootstrap` | <http://127.0.0.1:8010/> Agent Console |
+| 电商 ERP | `python -X utf8 main.py` | <http://127.0.0.1:8000/> |
 
 ## 质量入口
 

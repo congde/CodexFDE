@@ -1,0 +1,1 @@
+.runtime-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;padding:20px}.runtime-grid h3{margin:0 0 8px;font-size:13px}@media(max-width:800px){.runtime-grid{grid-template-columns:1fr}}

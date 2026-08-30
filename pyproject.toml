@@ -1,8 +1,35 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "flowerp-fde-camp"
 version = "0.1.0"
 description = "A dependency-light ERP project for Codex + FDE delivery training"
+readme = "README.md"
 requires-python = ">=3.10"
+# 课程跟跑线刻意保持零第三方运行时依赖；虚拟环境仍用于隔离解释器与可编辑安装。
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "build>=1.0",
+]
+
+[project.scripts]
+flowerp = "main:main"
+flowerp-workbench = "workbench.cli:main"
+harness-workbench = "workbench.harness_cli:main"
+
+[tool.setuptools]
+py-modules = ["main"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["flowerp*", "workbench*", "eval*", "agent*", "harness_web*"]
+
+[tool.setuptools.package-data]
+"*" = ["*.html", "*.css", "*.js"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

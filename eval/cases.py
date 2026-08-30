@@ -7,10 +7,12 @@ from flowerp import ERPService, ERPStore, InventoryService, LedgerService, Maste
 from flowerp.finance import FinanceService
 from flowerp.cash_management import CashManagementService
 from flowerp.channels import EcommerceChannelService
+from flowerp.import_export import ImportExportService
 from flowerp.identity import Principal, SYSTEM_PRINCIPAL
 from flowerp.models import ApprovalRequired, Conflict, InsufficientStock, InvalidTransition, OrderLine
 from flowerp.operations import BackupService
 from flowerp.purchasing import PurchasingService
+from eval.progression import require_capability
 from workbench.feedback import add_feedback, review_feedback, summary as feedback_summary
 from workbench.task_store import TaskStore
 
@@ -23,6 +25,7 @@ def _service() -> tuple[tempfile.TemporaryDirectory, ERPService]:
 
 
 def stock_never_negative() -> str:
+    require_capability("stock_non_negative")
     tmp, service = _service()
     try:
         service.receive_stock("SKU-A", 5, "open")
@@ -37,6 +40,7 @@ def stock_never_negative() -> str:
 
 
 def receiving_is_idempotent() -> str:
+    require_capability("receiving_idempotent")
     tmp, service = _service()
     try:
         first = service.receive_stock("SKU-A", 5, "receipt:001")
@@ -46,7 +50,30 @@ def receiving_is_idempotent() -> str:
     finally: tmp.cleanup()
 
 
+def inventory_export_is_stable() -> str:
+    require_capability("inventory_export")
+    tmp = tempfile.TemporaryDirectory(prefix="flowerp-eval-export-")
+    try:
+        store = ERPStore(Path(tmp.name) / "eval.db")
+        from flowerp.identity import IdentityService
+        IdentityService(store).ensure_local_defaults()
+        master = MasterDataService(store); inventory = InventoryService(store)
+        second = master.create_product(SYSTEM_PRINCIPAL, "EXPORT-B", "导出商品 B", 2000, 1000)
+        first = master.create_product(SYSTEM_PRINCIPAL, "EXPORT-A", "导出商品 A", 1000, 500)
+        inventory.receive(SYSTEM_PRINCIPAL, second["id"], "LOC-MAIN-STOCK", 2, "export-b")
+        inventory.receive(SYSTEM_PRINCIPAL, first["id"], "LOC-MAIN-STOCK", 3, "export-a")
+        content = ImportExportService(store).export_csv(SYSTEM_PRINCIPAL, "inventory")
+        lines = (content[1:] if content.startswith("\ufeff") else content).splitlines()
+        assert lines[0] == "sku,name,site,location,lot_id,on_hand,reserved,available"
+        assert lines[1].startswith("EXPORT-A,") and lines[2].startswith("EXPORT-B,")
+        assert lines[1].endswith(",3,0,3") and lines[2].endswith(",2,0,2")
+        return "库存导出字段固定、按 SKU 排序且 available 与权威库存一致"
+    finally:
+        tmp.cleanup()
+
+
 def cancellation_releases_reservation() -> str:
+    require_capability("cancel_release")
     tmp, service = _service()
     try:
         service.receive_stock("SKU-A", 5, "open")
@@ -59,6 +86,7 @@ def cancellation_releases_reservation() -> str:
 
 
 def illegal_transition_is_blocked() -> str:
+    require_capability("illegal_transition")
     tmp, service = _service()
     try:
         order = service.create_order("客户", [OrderLine("SKU-A", 1, 1000)], "SO-EVAL-STATE")
@@ -69,6 +97,7 @@ def illegal_transition_is_blocked() -> str:
 
 
 def purchase_requires_approval() -> str:
+    require_capability("purchase_approval")
     tmp, service = _service()
     try:
         purchase = service.propose_purchase("SKU-A", 7, "低于补货点", "PR-EVAL-APPROVAL")
@@ -82,7 +111,28 @@ def purchase_requires_approval() -> str:
     finally: tmp.cleanup()
 
 
+def purchase_request_preserves_reason() -> str:
+    require_capability("purchase_request")
+    tmp, service = _service()
+    try:
+        purchase = service.propose_purchase("SKU-A", 7, "低于补货点", "PR-EVAL-PROPOSE")
+        assert purchase["id"] == "PR-EVAL-PROPOSE"
+        assert purchase["status"] == "proposed" and purchase["quantity"] == 7
+        assert purchase["reason"] == "低于补货点"
+        try:
+            service.propose_purchase("SKU-A", 0, "无效数量", "PR-EVAL-INVALID")
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("零数量采购申请未被拒绝")
+        assert all(item["id"] != "PR-EVAL-INVALID" for item in service.list_purchases())
+        return "采购申请保留 SKU、数量、原因和稳定身份，无效数量没有部分写入"
+    finally:
+        tmp.cleanup()
+
+
 def order_total_matches_lines() -> str:
+    require_capability("order_total")
     tmp, service = _service()
     try:
         order = service.create_order("客户", [OrderLine("SKU-A", 3, 1250)], "SO-EVAL-TOTAL")
@@ -127,6 +177,7 @@ def ecommerce_channel_order_is_idempotent_and_guarded() -> str:
 
 
 def no_committed_secrets() -> str:
+    require_capability("no_secrets")
     root = Path(__file__).resolve().parent.parent
     suspicious: list[str] = []
     markers = ("sk-proj-", "-----BEGIN PRIVATE KEY-----", "AKIA")
@@ -201,6 +252,7 @@ def stale_stock_count_is_blocked() -> str:
 
 
 def sales_credit_and_atomic_reservation() -> str:
+    require_capability("sales_atomic")
     tmp = tempfile.TemporaryDirectory(prefix="flowerp-eval-sales-")
     try:
         store = ERPStore(Path(tmp.name) / "eval.db")
@@ -345,6 +397,7 @@ def bank_statement_control_and_reconciliation() -> str:
 
 
 def delivery_evidence_and_review_controls() -> str:
+    require_capability("delivery_evidence")
     from workbench.automation import DeliveryAutomation
 
     tmp = tempfile.TemporaryDirectory(prefix="flowerp-eval-delivery-")
@@ -389,5 +442,55 @@ def delivery_evidence_and_review_controls() -> str:
             raise AssertionError("已审核反馈仍可重复改变结论")
         assert feedback_summary(str(path))["pending_review"] == 0
         return "需求自动生成任务级 Spec 并推进至审核；完成需要具名审核；反馈默认待审且审核后不可重复改写"
+    finally:
+        tmp.cleanup()
+
+
+def web_api_and_persistence_projection_agree() -> str:
+    require_capability("web_api")
+    from workbench.platform_api import HarnessPlatformAPI
+    from workbench.server import App
+
+    tmp = tempfile.TemporaryDirectory(prefix="flowerp-eval-web-projection-")
+    try:
+        runtime = Path(tmp.name)
+        app = App(runtime)
+        assert app.tasks is None
+        assert not (runtime / "workbench.db").exists()
+        moved = app.api.dispatch("GET", "/api/v1/tasks?limit=100", {}, None, "127.0.0.1")
+        assert moved.status == 410
+
+        harness = HarnessPlatformAPI(runtime / "harness", Path(__file__).resolve().parent.parent)
+        task = harness.tasks.create(
+            "验证 Web 只投影权威任务状态", "REQ-EVAL-WEB-001", ["REQUIREMENT:EVAL-WEB"],
+        )
+        task_response = harness.dispatch("GET", "/api/v1/tasks?limit=100", {}, {})
+        assert task_response.status == 200
+        api_task = next(item for item in task_response.body["items"] if item["id"] == task["id"])
+        with harness.tasks.connect() as connection:
+            persisted_status = connection.execute(
+                "SELECT status FROM tasks WHERE id=?", (task["id"],)
+            ).fetchone()["status"]
+        assert api_task["status"] == task["status"] == persisted_status == "queued"
+        assert (runtime / "harness/tasks.db").is_file()
+        assert not (runtime / "harness/flowerp.db").exists()
+
+        product = MasterDataService(app.store).create_product(
+            SYSTEM_PRINCIPAL, "WEB-EVAL", "页面对账商品", 12900, 6000,
+        )
+        product_response = app.api.dispatch("GET", "/api/v1/products?limit=500", {}, None, "127.0.0.1")
+        assert product_response.status == 200
+        api_product = next(item for item in product_response.body["items"] if item["id"] == product["id"])
+        persisted_sku = app.store.scalar("SELECT sku FROM product_master WHERE id=?", (product["id"],))
+        assert api_product["sku"] == persisted_sku == "WEB-EVAL"
+
+        web_source = (Path(__file__).resolve().parent.parent / "web" / "app.js").read_text(encoding="utf-8")
+        assert 'api("/api/v1/products?limit=500")' in web_source
+        erp_shell = (Path(__file__).resolve().parent.parent / "web" / "index.html").read_text(encoding="utf-8")
+        assert 'href="http://127.0.0.1:8010"' in erp_shell
+        harness_source = (Path(__file__).resolve().parent.parent / "harness_web" / "app.js").read_text(encoding="utf-8")
+        assert 'api("/api/v1/tasks?limit=200")' in harness_source
+        assert 'api("/api/v1/course/status")' in harness_source
+        return "Harness Web/Task SQLite 与 FlowERP Web/ERP SQLite 分别对账，且两套运行数据库物理隔离"
     finally:
         tmp.cleanup()

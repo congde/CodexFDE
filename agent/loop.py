@@ -50,7 +50,8 @@ def _run_codex(task: dict, round_no: int, timeout: int) -> dict:
 
 def run_loop(max_rounds: int = 3, token_budget: int = 30_000, timeout_seconds: int = 900,
              use_codex: bool = False, *, suite_runner: Callable[..., dict] = run_suite,
-             executor: Callable[[dict, int, int], dict] = _run_codex) -> dict:
+             executor: Callable[[dict, int, int], dict] = _run_codex,
+             runtime_dir: str | Path = ".runtime/loop") -> dict:
     if max_rounds < 1 or max_rounds > 10: raise ValueError("max_rounds 必须在 1..10")
     if token_budget < 1: raise ValueError("token_budget 必须大于 0")
     if timeout_seconds < 1: raise ValueError("timeout_seconds 必须大于 0")
@@ -77,7 +78,7 @@ def run_loop(max_rounds: int = 3, token_budget: int = 30_000, timeout_seconds: i
             return finish("stopped_time_budget", round_no, failures)
         if use_codex and tokens_used >= token_budget:
             return finish("stopped_token_budget", round_no, failures)
-        task = build_repair_task(report, f".runtime/loop/repair-round-{round_no}.json")
+        task = build_repair_task(report, Path(runtime_dir) / f"repair-round-{round_no}.json")
         entry["repair_task"] = task
         if not use_codex:
             entry["executor"] = "dry-run: 仅生成修复任务；传 --codex 才授权本机 Codex 修改"

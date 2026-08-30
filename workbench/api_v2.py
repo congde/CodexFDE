@@ -38,6 +38,8 @@ from .automation import DeliveryAutomation
 from .execution import CodexExecutionRunner
 from .task_store import TaskStore
 from .workflow import evaluate_task, prepare_task, run_task, start_task
+from .course_mainline import LESSONS, lesson_contract, validate_mainline
+from .course_release import CourseCandidateArtifacts
 
 
 @dataclass
@@ -52,7 +54,8 @@ class APIRouter:
     """Dependency-light JSON API router for single-instance FlowERP deployments."""
 
     def __init__(self, store: ERPStore, settings: Settings, task_store: TaskStore | None = None,
-                 automation: DeliveryAutomation | None = None) -> None:
+                 automation: DeliveryAutomation | None = None,
+                 enable_legacy_workbench: bool = False) -> None:
         self.store = store
         self.settings = settings
         self.identity = IdentityService(store, settings.session_hours)
@@ -78,14 +81,23 @@ class APIRouter:
         self.alerts = AlertService(store, self.audit)
         self.ledger = LedgerService(store)
         self.cash = CashManagementService(store, self.audit)
+        self.repository_root = Path(__file__).resolve().parent.parent
+        self.enable_legacy_workbench = enable_legacy_workbench
+        self.course_artifacts = CourseCandidateArtifacts(
+            self.repository_root, settings.runtime_dir,
+        ) if enable_legacy_workbench else None
         self.channels = EcommerceChannelService(store, self.audit)
-        self.tasks = task_store or TaskStore(settings.runtime_dir / "workbench.db")
-        self.evolutions = EvolutionStore(self.tasks.path)
-        self.automation = automation or DeliveryAutomation(
-            self.tasks, settings.runtime_dir,
-            execution_runner=CodexExecutionRunner(Path(__file__).resolve().parent.parent, settings.runtime_dir),
-        )
-        self.automation.recover()
+        self.tasks = task_store if enable_legacy_workbench else None
+        if enable_legacy_workbench and self.tasks is None:
+            self.tasks = TaskStore(settings.runtime_dir / "workbench.db")
+        self.evolutions = EvolutionStore(self.tasks.path) if self.tasks else None
+        self.automation = automation if enable_legacy_workbench else None
+        if enable_legacy_workbench and self.automation is None:
+            self.automation = DeliveryAutomation(
+                self.tasks, settings.runtime_dir,
+                execution_runner=CodexExecutionRunner(Path(__file__).resolve().parent.parent, settings.runtime_dir),
+            )
+        if self.automation: self.automation.recover()
         self._login_attempts: dict[str, deque[float]] = defaultdict(deque)
         self._request_attempts: dict[str, deque[float]] = defaultdict(deque)
         self._rate_lock = threading.Lock()
@@ -207,10 +219,49 @@ class APIRouter:
             self.identity.change_password(principal, str(data.get("old_password", "")), str(data.get("new_password", "")))
             return APIResponse(204, "")
 
+        harness_paths = (
+            "/api/v1/delivery", "/api/v1/tasks", "/api/v1/feedback",
+            "/api/v1/evolutions", "/api/v1/course",
+        )
+        if not self.enable_legacy_workbench and path.startswith(harness_paths):
+            return self._error(
+                HTTPStatus.GONE, "standalone_harness",
+                "Harness Workbench 已拆分为独立平台，请访问 http://127.0.0.1:8010",
+            )
+
         if path == "/api/v1/delivery/capabilities":
             principal.require("users.manage")
             if method == "GET":
                 return APIResponse(200, self.automation.capabilities())
+        if path == "/api/v1/course/status" and method == "GET":
+            principal.require("users.manage")
+            return APIResponse(200, validate_mainline(self.repository_root))
+        if path == "/api/v1/course/lessons" and method == "GET":
+            principal.require("users.manage")
+            return APIResponse(200, {"items": [lesson.as_dict() for lesson in LESSONS]})
+        if path.startswith("/api/v1/course/lessons/") and method == "GET":
+            principal.require("users.manage")
+            try:
+                number = int(path.rsplit("/", 1)[-1])
+            except ValueError as exc:
+                raise ValidationError("课次必须是 1 到 16 的整数") from exc
+            return APIResponse(200, lesson_contract(number).as_dict())
+        if path.startswith("/api/v1/course/tasks/"):
+            principal.require("users.manage")
+            parts = path.split("/")
+            if len(parts) == 7 and parts[6] == "candidate":
+                task_id = parts[5]
+                if method == "GET":
+                    return APIResponse(200, self.course_artifacts.manifest(task_id))
+                if method == "POST":
+                    return self._idempotent(principal, method, path, headers, data, lambda: (
+                        201, self.course_artifacts.export(self.tasks, task_id)
+                    ))
+            if len(parts) == 7 and parts[6] == "worktree-clean" and method == "POST":
+                task_id = parts[5]
+                return self._idempotent(principal, method, path, headers, data, lambda: (
+                    200, self.course_artifacts.cleanup(self.tasks, task_id)
+                ))
         if path == "/api/v1/delivery/requests":
             principal.require("users.manage")
             if method == "POST":

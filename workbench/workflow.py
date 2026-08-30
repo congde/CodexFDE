@@ -38,7 +38,7 @@ def start_task(store: TaskStore, task_id: str, actor: str = "system") -> dict:
     if task["status"] not in {"spec_ready", "rework"}:
         raise ValueError("只有 spec_ready 或 rework 任务可以开始执行")
     code_writes = task.get("execution_mode") == "codex"
-    allowed_actions = ["read_spec", "read_workspace", "run_blocking_eval"]
+    allowed_actions = ["read_spec", "read_workspace", "run_blocking_eval", "run_workspace_shell"]
     if code_writes:
         allowed_actions.append("write_code_in_task_scope")
     return store.transition(
@@ -121,6 +121,12 @@ def run_task(store: TaskStore, task_id: str, actor: str = "system", suite_runner
         return evaluate_task(store, task_id, actor, suite_runner)
     except Exception as exc:
         task = store.get(task_id)
+        if isinstance(exc, ControlledExecutionError) and task["status"] == "executing":
+            return store.transition(
+                task_id, "rework", "受控执行失败，保留证据并等待有界重试", actor=actor,
+                evidence={"error_type": type(exc).__name__, "execution": exc.evidence},
+                error=str(exc),
+            )
         if task["status"] not in {"completed", "failed", "rework"}:
             evidence = {"error_type": type(exc).__name__}
             execution_evidence = getattr(exc, "evidence", None)
