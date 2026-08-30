@@ -1,8 +1,9 @@
 {
   "schema_version": "1.0",
-  "lesson_start": 5,
+  "lesson_start": 6,
   "enabled": [
-    "inventory_export"
+    "inventory_export",
+    "receiving_idempotent"
   ],
   "note": "课程起始基线红绿门闩。终态跟跑仓库不应提交本文件（或 enabled 含全部能力）；禁止用终态 HEAD 冒充 16 个起始标签。"
 }
