@@ -1,0 +1,109 @@
+{
+  "folders": [
+    {
+      "name": "FlowERP × AI 研发工作台",
+      "path": ".."
+    }
+  ],
+  "settings": {
+    "files.encoding": "utf8",
+    "terminal.integrated.cwd": "${workspaceFolder}",
+    "python.defaultInterpreterPath": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
+    "python.terminal.activateEnvironment": true,
+    "editor.formatOnSave": false,
+    "files.exclude": {
+      "**/__pycache__": true,
+      "**/*.pyc": true,
+      ".runtime": true,
+      ".harness-runtime": true
+    }
+  },
+  "tasks": {
+    "version": "2.0.0",
+    "tasks": [
+      {
+        "label": "课程/01 状态检查",
+        "type": "process",
+        "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
+        "args": ["-X", "utf8", "-m", "workbench.cli", "course-status"],
+        "options": { "cwd": "${workspaceFolder}" },
+        "problemMatcher": []
+      },
+      {
+        "label": "课程/02 查看本讲合同",
+        "type": "process",
+        "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
+        "args": ["-X", "utf8", "-m", "workbench.cli", "course-contract", "--lesson", "${input:lessonNumber}"],
+        "options": { "cwd": "${workspaceFolder}" },
+        "problemMatcher": []
+      },
+      {
+        "label": "课程/03 生成本讲 Spec",
+        "type": "process",
+        "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
+        "args": ["-X", "utf8", "-m", "workbench.cli", "course-spec", "--lesson", "${input:lessonNumber}"],
+        "options": { "cwd": "${workspaceFolder}" },
+        "problemMatcher": []
+      },
+      {
+        "label": "课程/04 运行本讲 Eval",
+        "type": "process",
+        "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
+        "args": ["-X", "utf8", "-m", "workbench.cli", "course-eval", "--lesson", "${input:lessonNumber}"],
+        "options": { "cwd": "${workspaceFolder}" },
+        "problemMatcher": []
+      },
+      {
+        "label": "课程/05 复验已有候选（不计实现证据）",
+        "type": "process",
+        "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
+        "args": ["-X", "utf8", "-m", "workbench.cli", "course-submit", "--lesson", "${input:lessonNumber}", "--verify-only"],
+        "options": { "cwd": "${workspaceFolder}" },
+        "problemMatcher": []
+      },
+      {
+        "label": "课程/06 阻断级 Eval",
+        "type": "process",
+        "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
+        "args": ["-X", "utf8", "-m", "eval.harness", "--suite", "blocking"],
+        "options": { "cwd": "${workspaceFolder}" },
+        "problemMatcher": []
+      },
+      {
+        "label": "课程/07 全量测试",
+        "type": "process",
+        "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
+        "args": ["-X", "utf8", "-m", "unittest", "discover", "-s", "tests", "-v"],
+        "options": { "cwd": "${workspaceFolder}" },
+        "problemMatcher": []
+      },
+      {
+        "label": "课程/08 启动 FlowERP（8000）",
+        "type": "process",
+        "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
+        "args": ["-X", "utf8", "main.py", "--host", "127.0.0.1", "--port", "8000"],
+        "options": { "cwd": "${workspaceFolder}" },
+        "isBackground": true,
+        "problemMatcher": []
+      },
+      {
+        "label": "课程/09 启动可选工作台 Web（8010）",
+        "type": "process",
+        "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
+        "args": ["-X", "utf8", "-m", "workbench.platform_server", "--bootstrap"],
+        "options": { "cwd": "${workspaceFolder}" },
+        "isBackground": true,
+        "problemMatcher": []
+      }
+    ],
+    "inputs": [
+      {
+        "id": "lessonNumber",
+        "type": "pickString",
+        "description": "选择课程讲次",
+        "options": ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16"],
+        "default": "1"
+      }
+    ]
+  }
+}

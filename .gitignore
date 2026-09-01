@@ -7,9 +7,30 @@ __pycache__/
 *.so
 .harness-*/
 docs/
+!docs/
+docs/*
+!docs/courses/
+docs/courses/*
+!docs/courses/*.md
+!docs/courses/assets/
+docs/courses/assets/*
+!docs/courses/assets/*.png
+!docs/courses/ppt/
+docs/courses/ppt/*
+!docs/courses/ppt/*.pptx
 .codex-tmp/
 .tmp/
 course/
+!course/
+course/*
+!course/FlowERP-AI研发工作台.code-workspace
+!course/tasks/
+course/tasks/*
+!course/tasks/*.md
+!course/baselines/
+course/baselines/*
+!course/baselines/*.md
+course/baselines/PROGRESSION.json
 
 # Distribution / packaging
 .Python
