@@ -492,11 +492,14 @@ class CourseOutlineAlignmentTests(unittest.TestCase):
 
         plan = plan_path.read_text(encoding="utf-8")
         script = script_path.read_text(encoding="utf-8")
+        outline = OUTLINE.read_text(encoding="utf-8")
         workspace = json.loads(workspace_path.read_text(encoding="utf-8"))
         self.assertIn("16 个独立 PPTX", script)
         self.assertIn("每讲页数不设统一上限", script)
         self.assertNotIn("16 讲 × 4 页，共 64 页", script)
         self.assertIn("16 个独立 PPTX", plan)
+        self.assertIn("16 个逐讲独立课件", outline)
+        self.assertIn("不设统一页数上限", outline)
         for marker in (
             "PPT 引导决策",
             "Markdown 承载教材",

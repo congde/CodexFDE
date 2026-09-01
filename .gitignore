@@ -9,6 +9,7 @@ __pycache__/
 docs/
 !docs/
 docs/*
+!docs/课程大纲-Codex-FDE行动营-个人研发自动化工作台.md
 !docs/courses/
 docs/courses/*
 !docs/courses/*.md
