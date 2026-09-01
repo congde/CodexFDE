@@ -77,6 +77,15 @@ class HarnessTerminal:
     def dump_config(self, profile_id: str = "PROFILE-DEFAULT") -> dict:
         return self.api.runtime.dump_config(profile_id)
 
+    def plugin_runtime(self, profile_id: str = "PROFILE-DEFAULT") -> dict:
+        return self.api.plugin_supervisor.status(profile_id)
+
+    def plugin_events(self, profile_id: str | None = None, limit: int = 100) -> list[dict]:
+        return self.api.runtime.plugin_events(profile_id, limit)
+
+    def close(self) -> None:
+        self.api.shutdown()
+
     def export_session(self, session_id: str, output: str | Path | None = None) -> dict:
         from .session_export import export_session_bundle, write_session_export
 
@@ -88,6 +97,7 @@ class HarnessTerminal:
             self.api.runtime,
             session_id,
             task=task,
+            delivery_view=self.api.delivery_views.get(task["id"]) if task else None,
             repository_root=self.api.repository_root,
         )
         if output:
@@ -162,6 +172,7 @@ class HarnessTerminal:
         )
         session_id = result.get("session_id")
         messages = self.derive_session_messages(session_id) if session_id else []
+        delivery_view = self.api.delivery_views.get(result["id"]) if result.get("id") else None
         composition = self.composition(profile_id)
         final_answer = ""
         for message in reversed(messages):
@@ -179,6 +190,7 @@ class HarnessTerminal:
             "profile": composition.get("profile", {}).get("name", profile_id),
             "bootstrap": bootstrap,
             "task": result,
+            "delivery_view": delivery_view,
             "session_id": session_id,
             "messages": messages,
             "final_answer": final_answer,
@@ -214,6 +226,7 @@ class HarnessTerminal:
             "codex" if execute_code else "verify",
             write_scope or [],
             execution_timeout_seconds,
+            auto_start=False,
         )
         session = self.api.runtime.create_session(
             project_id,
@@ -230,6 +243,7 @@ class HarnessTerminal:
             "harness",
             {"task_id": task["id"], "status": task["status"]},
         )
+        self.api.automation.start(task["id"], actor="automation")
         result = {**task, "session_id": session_id}
         if wait:
             if verbose:
@@ -400,10 +414,14 @@ def format_session(session: dict) -> str:
 
 def format_headless(result: dict) -> str:
     task = result.get("task") or {}
+    view = result.get("delivery_view") or {}
+    status_view = view.get("status") or {}
     lines = [
         "Harness headless run complete",
         f"profile   : {result.get('profile_id', result.get('profile', '—'))}",
         f"task      : {task.get('id', '—')}  status={task.get('status', '—')}",
+        f"owner     : {(status_view.get('owner') or {}).get('label', '—')}",
+        f"next      : {status_view.get('next_action', '—')}",
         f"session   : {result.get('session_id', '—')}",
         f"exit_code : {result.get('exit_code', 1)}",
     ]
@@ -434,6 +452,14 @@ def format_composition(payload: dict) -> str:
     lines.append("plugins:")
     for plugin in payload.get("plugins") or []:
         lines.append(f"  · {plugin.get('seam')} → {plugin.get('provider')} ({plugin.get('id')})")
+    runtime = payload.get("runtime") or {}
+    if runtime:
+        lines.append(
+            "runtime   : "
+            f"active={len(runtime.get('active_plugins') or [])} "
+            f"pending={len(runtime.get('pending_plugins') or [])} "
+            f"listeners={runtime.get('listener_count', 0)}"
+        )
     return "\n".join(lines)
 
 

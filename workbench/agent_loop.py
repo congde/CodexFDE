@@ -146,7 +146,11 @@ class AgentLoop:
         duty_actor: str,
     ) -> list[dict]:
         tool_plan = plan_turn_tools(task, turn=turn_no)
-        provider_name = self.providers.llm_provider(profile_id)
+        configured_provider = self.providers.llm_provider(profile_id)
+        # Verification-only tasks already have a deterministic tool plan and
+        # must stay offline/reproducible. Only explicit Codex execution tasks
+        # ask the configured model to produce a delivery plan.
+        provider_name = configured_provider if task.get("execution_mode") == "codex" else "template"
         adapter = create_llm_adapter(self.runtime, provider_name, self.providers.repository_root)
         adapter.emit_delivery_plan(session_id, turn=turn_no, task=task, actor=duty_actor)
         self.runtime.append(

@@ -102,6 +102,8 @@ class HTTPAPITests(unittest.TestCase):
         self.assertIn('/api/v1/sales/returns?limit=500', script)
         self.assertIn('/api/v1/purchases/receipts?limit=500', script)
         self.assertIn('/api/v1/finance/periods/reopen', script)
+        self.assertIn('/api/v1/reports/ap-aging', script)
+        self.assertIn('应收 / 应付账龄', body)
         self.assertIn('toast("系统初始化完成，已进入工作台")', script)
         self.assertIn('toast("系统已初始化，已为您进入工作台")', script)
         self.assertIn('>查看应收票</button>', script)
@@ -109,11 +111,14 @@ class HTTPAPITests(unittest.TestCase):
         self.assertIn('id="dashboard-trend-chart"', body)
         self.assertIn('id="page-delivery"', body)
         self.assertIn('id="delivery-task-form"', body)
-        self.assertIn('src="./app.js?v=35"', body)
+        self.assertRegex(body, r'src="\./app\.js\?v=\d+"')
         self.assertNotIn('prompt(', script)
-        self.assertIn('/api/v1/tasks?limit=100', script)
+        self.assertIn('/api/v1/delivery/views?limit=100', script)
         self.assertIn('/api/v1/feedback', script)
         self.assertIn('/api/v1/evolutions', script)
+        self.assertIn('x.processing_owner||"—"', script)
+        self.assertIn('x.lease_expires_at', script)
+        self.assertIn('e.blocking_failures', script)
         self.assertIn('id="delivery-evolution-form"', body)
         self.assertIn('id="delivery-completed-task-options"', body)
         self.assertIn('系统自动绑定候选 Task 的专属报告快照', body)
@@ -132,6 +137,49 @@ class HTTPAPITests(unittest.TestCase):
         status, body, _ = self.request("GET", "/api/v1/setup/status")
         self.assertEqual(200, status)
         self.assertFalse(body["initialized"])
+
+    def test_channel_callback_api_enforces_named_lease_owner(self) -> None:
+        principal = self.app.api._principal({})[0]
+        product = self.app.api.master.create_product(principal, "HTTP-CALLBACK", "回传测试商品", 1000, 500)
+        customer = self.app.api.master.create_customer(
+            principal, "HTTP-PLATFORM", "平台结算客户", credit_limit_cents=100000,
+        )
+        shop = self.app.api.channels.create_shop(
+            principal, "mock", "HTTP-SHOP", "API 沙箱店", customer["id"], "SITE-MAIN", "http-shop",
+        )
+        self.app.api.channels.map_listing(
+            principal, shop["id"], "item-http", "sku-http", "API 商品",
+            [{"product_id": product["id"], "quantity": 1, "revenue_share_basis_points": 10000}],
+        )
+        payload = {
+            "external_order_id": "HTTP-ORDER-1", "external_status": "paid",
+            "order_time": "2026-08-31T10:00:00+08:00", "currency": "CNY",
+            "goods_cents": 1000, "total_cents": 1000, "recipient": "测试员",
+            "phone": "13800138000", "province": "上海市", "city": "上海市", "street": "API 路 1 号",
+            "lines": [{"external_line_id": "1", "external_product_id": "item-http",
+                       "external_sku_id": "sku-http", "quantity": 1,
+                       "unit_price_cents": 1000, "total_cents": 1000}],
+        }
+        order = self.app.api.channels.ingest_orders(principal, shop["id"], [payload])["items"][0]
+        self.app.api.channels.cancel_order(principal, order["id"], "API 验证取消")
+
+        claimed = self.app.api.dispatch(
+            "POST", "/api/v1/channels/callbacks/claim", {},
+            {"worker_id": "http-worker-a", "limit": 1, "lease_seconds": 60}, "127.0.0.1",
+        )
+        self.assertEqual(200, claimed.status)
+        task = claimed.body["items"][0]
+        wrong_owner = self.app.api.dispatch(
+            "POST", f"/api/v1/channels/callbacks/{task['id']}/complete", {},
+            {"success": True, "worker_id": "http-worker-b"}, "127.0.0.1",
+        )
+        self.assertEqual(409, wrong_owner.status)
+        completed = self.app.api.dispatch(
+            "POST", f"/api/v1/channels/callbacks/{task['id']}/complete", {},
+            {"success": True, "worker_id": "http-worker-a"}, "127.0.0.1",
+        )
+        self.assertEqual(200, completed.status)
+        self.assertEqual("succeeded", completed.body["status"])
 
     def test_bootstrap_login_and_authenticated_me(self) -> None:
         status, _, _ = self.request("POST", "/api/v1/setup/bootstrap", {
@@ -189,6 +237,13 @@ class HTTPAPITests(unittest.TestCase):
         status, listing, _ = self.request("GET", "/api/v1/tasks")
         self.assertEqual(200, status)
         self.assertEqual(task["id"], listing["items"][0]["id"])
+        view_status, view, _ = self.request("GET", f"/api/v1/delivery/views/{task['id']}")
+        views_status, views, _ = self.request("GET", "/api/v1/delivery/views")
+        self.assertEqual(200, view_status)
+        self.assertEqual(200, views_status)
+        self.assertEqual("workbench.delivery-view/v1", view["schema"])
+        self.assertEqual("queued", view["status"]["code"])
+        self.assertEqual(task["id"], views["items"][0]["task_id"])
 
         def reach_review(store, task_id, actor="system"):
             store.transition(task_id, "spec_ready", "test", spec={"goal": "test"})

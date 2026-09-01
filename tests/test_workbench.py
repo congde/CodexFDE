@@ -5,6 +5,7 @@ import json
 import subprocess
 import tempfile
 import threading
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -14,8 +15,8 @@ from agent.loop import run_loop
 from workbench.automation import DeliveryAutomation
 from workbench.execution import CodexExecutionRunner, normalize_write_scope
 from workbench.evolution import EvolutionStore
-from workbench.feedback import add_feedback, review_feedback, summary
-from workbench.spec import load_spec, parse_spec
+from workbench.feedback import add_feedback, observe_task_failure, review_feedback, summary
+from workbench.spec import build_delivery_spec, load_spec, parse_spec
 from workbench.task_store import TaskStore
 from workbench.workflow import run_task
 
@@ -51,6 +52,16 @@ class WorkbenchTests(unittest.TestCase):
     def test_spec_parser_requires_all_sections(self) -> None:
         self.assertIn("库存", load_spec().goal)
         with self.assertRaises(ValueError): parse_spec("## 目标\n只有目标")
+
+    def test_channel_callback_requirement_generates_lease_acceptance(self) -> None:
+        spec = build_delivery_spec(
+            "渠道回传必须通过具名 Worker 租约执行并有界重试",
+            "REQ-CHANNEL-CALLBACK-LEASE-001",
+            ["CHANNEL:TMALL-A"],
+        )
+        parsed = parse_spec(spec)
+        self.assertIn("只有一个具名 Worker", parsed.acceptance)
+        self.assertIn("非租约持有者不得确认完成", parsed.acceptance)
 
     def test_task_state_is_persistent_and_guarded(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -219,6 +230,34 @@ class WorkbenchTests(unittest.TestCase):
             self.assertEqual("rework", finished["status"])
             self.assertEqual(1, finished["result"]["summary"]["blocking_failed"])
             self.assertIsNone(finished["reviewed_by"])
+            feedback = summary(str(store.path))
+            self.assertEqual(1, feedback["pending_review"])
+            self.assertEqual("automation:rework", feedback["items"][0]["source"])
+            self.assertEqual(["stock_never_negative"], feedback["items"][0]["evidence"]["blocking_failures"])
+            duplicate = observe_task_failure(finished, str(store.path))
+            self.assertEqual(feedback["items"][0]["id"], duplicate["id"])
+            self.assertEqual(1, summary(str(store.path))["total"])
+
+    def test_automatic_pipeline_records_eval_runner_exception_as_dead_letter(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = TaskStore(Path(tmp) / "tasks.db")
+
+            def broken_runner(*_args, **_kwargs):
+                raise RuntimeError("eval process disappeared")
+
+            automation = DeliveryAutomation(store, tmp, suite_runner=broken_runner, max_attempts=1)
+            task = automation.submit("验证 Worker 异常不会留下假运行状态", "REQ-WORKER-ERROR-001")
+            finished = automation.wait(task["id"], 2)
+            self.assertEqual("dead_letter", finished["status"])
+            self.assertIn("eval process disappeared", finished["error"])
+            self.assertTrue(any(
+                event["evidence"] and event["evidence"].get("error_type") == "RuntimeError"
+                for event in finished["events"]
+            ))
+            feedback = summary(str(store.path))
+            self.assertEqual(1, feedback["pending_review"])
+            self.assertEqual("automation:dead_letter", feedback["items"][0]["source"])
+            self.assertIn("eval process disappeared", feedback["items"][0]["evidence"]["error"])
 
     def test_automatic_pipeline_recovers_interrupted_evaluation(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -240,6 +279,20 @@ class WorkbenchTests(unittest.TestCase):
                 event["actor"] == "automation-recovery" and event["to_status"] == "rework"
                 for event in finished["events"]
             ))
+
+    def test_wait_soft_timeout_never_abandons_live_worker_resources(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = TaskStore(Path(tmp) / "tasks.db")
+
+            def slow_but_bounded_runner(*_args, **_kwargs):
+                time.sleep(0.15)
+                return self.report()
+
+            automation = DeliveryAutomation(store, tmp, suite_runner=slow_but_bounded_runner)
+            task = automation.submit("验证软超时不会遗留后台 Worker", "REQ-WAIT-DRAIN-001")
+            finished = automation.wait(task["id"], timeout=0.02)
+            self.assertEqual("review", finished["status"])
+            self.assertFalse(automation.is_active(task["id"]))
 
     def test_automatic_pipeline_bounds_workers_and_drains_queue(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

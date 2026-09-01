@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from http import HTTPStatus
 from pathlib import Path
+import threading
 from urllib.parse import parse_qs
 
 from .agent_roster import (
@@ -14,10 +15,14 @@ from .agent_roster import (
 from .automation import DeliveryAutomation
 from .agent_loop import AgentLoop, AgentLoopConfig
 from .course_mainline import LESSONS, lesson_contract, validate_mainline
+from .delivery_pipeline import pipeline_payload
+from .delivery_view import DeliveryViewService
 from .evolution import EvolutionStore
 from .feedback import add_feedback, review_feedback, summary as feedback_summary
+from .initiative import InitiativeStore
 from .project_runner import ProjectEvalRunner, ProjectExecutionRunner
 from .project_store import ProjectStore
+from .plugin_runtime import PluginRuntimeError, PluginSupervisor
 from .providers import HarnessProviders
 from .runtime_store import HarnessRuntimeStore
 from .task_store import TaskStore
@@ -45,10 +50,27 @@ class HarnessPlatformAPI:
         self.projects = ProjectStore(self.runtime_dir / "platform.db")
         self.runtime = HarnessRuntimeStore(self.runtime_dir / "platform.db")
         self.tasks = TaskStore(self.runtime_dir / "tasks.db")
+        self.initiatives = InitiativeStore(self.runtime_dir / "platform.db")
+        self._initiative_promotion_lock = threading.Lock()
         self.evolutions = EvolutionStore(self.tasks.path)
+        self.delivery_views = DeliveryViewService(self.tasks, self.evolutions)
         self.providers = HarnessProviders(self.runtime, self.projects, self.runtime_dir, self.repository_root)
         self.tools = ToolRegistry(self.runtime)
         register_default_tools(self.tools, self.tasks, self.providers)
+        self.plugin_supervisor = PluginSupervisor(
+            self.providers.plugin_contracts(self.tools),
+            event_sink=self.runtime.record_plugin_event,
+        )
+        catalog = {item["id"]: item for item in self.runtime.plugins()}
+        for profile in self.runtime.profiles():
+            desired = [
+                plugin_id for plugin_id in profile["plugin_ids"]
+                if plugin_id in catalog and catalog[plugin_id]["enabled"]
+            ]
+            self.plugin_supervisor.ensure(profile["id"], desired)
+        self.providers.attach_plugin_supervisor(self.plugin_supervisor)
+        self.runtime.set_profile_change_handler(self.plugin_supervisor.reconcile)
+        self.runtime.set_runtime_status_handler(self.plugin_supervisor.status)
         self.agent_loop = AgentLoop(self.tools, self.runtime, self.tasks, self.providers, AgentLoopConfig())
         self.automation = DeliveryAutomation(
             self.tasks, self.runtime_dir,
@@ -58,6 +80,13 @@ class HarnessPlatformAPI:
         )
         self.automation.recover()
         self._install_persist_hook()
+
+    def shutdown(self) -> None:
+        """Reverse all live plugin effects before the host process exits."""
+        self.runtime.set_after_append(None)
+        self.runtime.set_profile_change_handler(None)
+        self.runtime.set_runtime_status_handler(None)
+        self.plugin_supervisor.shutdown()
 
     def _install_persist_hook(self) -> None:
         def after_append(session_id: str, event: dict) -> None:
@@ -124,8 +153,14 @@ class HarnessPlatformAPI:
                 })
             if path == "/api/v1/plugins" and method == "GET":
                 return PlatformResponse(200, {"items": self.runtime.plugins()})
+            if path == "/api/v1/plugin-events" and method == "GET":
+                return PlatformResponse(200, {"items": self.runtime.plugin_events(
+                    query.get("profile_id"), int(query.get("limit", "100")),
+                )})
             if path == "/api/v1/profiles" and method == "GET":
                 return PlatformResponse(200, {"items": self.runtime.profiles()})
+            if path.startswith("/api/v1/profiles/") and path.endswith("/runtime") and method == "GET":
+                return PlatformResponse(200, self.plugin_supervisor.status(path.split("/")[4]))
             if path.startswith("/api/v1/profiles/") and path.endswith("/composition") and method == "GET":
                 return PlatformResponse(200, self.runtime.composition(path.split("/")[4]))
             if path.startswith("/api/v1/profiles/") and path.endswith("/activate") and method == "POST":
@@ -175,7 +210,9 @@ class HarnessPlatformAPI:
                     session = self.runtime.get_session(session_id)
                     task = self.tasks.get(session["task_id"]) if session.get("task_id") else None
                     return PlatformResponse(200, export_session_bundle(
-                        self.runtime, session_id, task=task, repository_root=self.repository_root,
+                        self.runtime, session_id, task=task,
+                        delivery_view=self.delivery_views.get(task["id"]) if task else None,
+                        repository_root=self.repository_root,
                     ))
                 if len(parts) == 6 and parts[5] == "graph":
                     session = self.runtime.get_session(session_id)
@@ -280,36 +317,70 @@ class HarnessPlatformAPI:
                     return PlatformResponse(HTTPStatus.CREATED, result)
             if path.startswith("/api/v1/projects/") and method == "GET":
                 return PlatformResponse(200, self.projects.get(path.rsplit("/", 1)[-1]))
+            if path == "/api/v1/delivery/views" and method == "GET":
+                return PlatformResponse(200, self.delivery_views.list(int(query.get("limit", "100"))))
+            if path.startswith("/api/v1/delivery/views/") and method == "GET":
+                return PlatformResponse(200, self.delivery_views.get(path.rsplit("/", 1)[-1]))
+            if path == "/api/v1/initiatives":
+                if method == "GET":
+                    return PlatformResponse(200, {
+                        "items": self.initiatives.list(int(query.get("limit", "100"))),
+                        "decision_options": ["build", "experiment", "defer", "reject", "stop"],
+                    })
+                if method == "POST":
+                    actor, key = self._write_identity(headers)
+                    payload = {**data, "actor": actor}
+                    result = self.projects.idempotent(
+                        "initiative-create", key, payload,
+                        lambda: self.initiatives.create(data, actor),
+                    )
+                    return PlatformResponse(HTTPStatus.CREATED, result)
+            if path.startswith("/api/v1/initiatives/"):
+                parts = path.split("/")
+                initiative_id = parts[4] if len(parts) > 4 else ""
+                if len(parts) == 5 and method == "GET":
+                    return PlatformResponse(200, self.initiatives.get(initiative_id))
+                if len(parts) == 6 and parts[5] == "revise" and method == "POST":
+                    actor, key = self._write_identity(headers)
+                    payload = {**data, "initiative_id": initiative_id, "actor": actor}
+                    result = self.projects.idempotent(
+                        "initiative-revise", key, payload,
+                        lambda: self.initiatives.revise(
+                            initiative_id, data, actor, int(data.get("expected_version", 0)),
+                        ),
+                    )
+                    return PlatformResponse(200, result)
+                if len(parts) == 6 and parts[5] == "decision" and method == "POST":
+                    actor, key = self._write_identity(headers)
+                    payload = {**data, "initiative_id": initiative_id, "actor": actor}
+                    result = self.projects.idempotent(
+                        "initiative-decision", key, payload,
+                        lambda: self.initiatives.decide(
+                            initiative_id, str(data.get("decision", "")), actor,
+                            str(data.get("rationale", "")), int(data.get("expected_version", 0)),
+                            review_trigger=str(data.get("review_trigger", "")),
+                            reviewer=str(data.get("reviewer", "")),
+                            success_metric=str(data.get("success_metric", "")),
+                            stop_condition=str(data.get("stop_condition", "")),
+                        ),
+                    )
+                    return PlatformResponse(200, result)
+                if len(parts) == 6 and parts[5] == "delivery" and method == "POST":
+                    actor, key = self._write_identity(headers)
+                    payload = {**data, "initiative_id": initiative_id, "actor": actor}
+                    result = self.projects.idempotent(
+                        "initiative-delivery", key, payload,
+                        lambda: self._promote_initiative(initiative_id, data, actor),
+                    )
+                    return PlatformResponse(HTTPStatus.ACCEPTED, result)
             if path == "/api/v1/tasks":
                 if method == "GET":
                     return PlatformResponse(200, {"items": self.tasks.list(int(query.get("limit", "100")))})
                 if method == "POST":
                     actor, key = self._write_identity(headers)
-                    project_id = str(data.get("project_id", ""))
-                    self.projects.get(project_id)
-                    refs = [f"PROJECT:{project_id}", *list(data.get("business_refs") or [])]
-                    def submit_task() -> dict:
-                        task = self.automation.submit(
-                            str(data.get("request", "")), str(data.get("requirement_id", "")), refs, actor,
-                            "codex" if data.get("execute_code") else "verify",
-                            list(data.get("write_scope") or []), int(data.get("execution_timeout_seconds", 900)),
-                        )
-                        session = self.runtime.create_session(
-                            project_id, str(data.get("request", ""))[:120], actor,
-                            str(data.get("profile_id", "PROFILE-DEFAULT")), task["id"],
-                        )
-                        self.runtime.append(session["id"], "user/message", actor, {"request": data.get("request")})
-                        self.runtime.append(session["id"], "task/created", "harness", {"task_id": task["id"], "status": task["status"]})
-                        from .delivery_pipeline import pipeline_payload
-                        self.runtime.append(
-                            session["id"],
-                            "pipeline/stage",
-                            "harness",
-                            {**pipeline_payload(str(task.get("status") or "queued")), "task_id": task["id"]},
-                            source_key=f"pipeline-stage:created:{task['id']}",
-                        )
-                        return {**task, "session_id": session["id"]}
-                    result = self.projects.idempotent("task-submit", key, data, submit_task)
+                    result = self.projects.idempotent(
+                        "task-submit", key, data, lambda: self._submit_project_task(data, actor),
+                    )
                     return PlatformResponse(HTTPStatus.ACCEPTED, result)
             if path.startswith("/api/v1/tasks/"):
                 parts = path.split("/")
@@ -381,12 +452,69 @@ class HarnessPlatformAPI:
             return PlatformResponse(404, {"error": "not_found", "message": "Harness API 路径不存在"})
         except KeyError as exc:
             return PlatformResponse(404, {"error": "not_found", "message": str(exc)})
+        except PluginRuntimeError as exc:
+            return PlatformResponse(409, {"error": "plugin_runtime_conflict", "message": str(exc)})
         except (TypeError, ValueError) as exc:
             return PlatformResponse(422, {"error": "invalid_request", "message": str(exc)})
 
     _BUSY_TASK_STATUSES = frozenset({
         "queued", "spec_ready", "executing", "evaluating", "rework",
     })
+
+    def _submit_project_task(self, data: dict, actor: str) -> dict:
+        project_id = str(data.get("project_id", ""))
+        self.projects.get(project_id)
+        refs = [f"PROJECT:{project_id}", *list(data.get("business_refs") or [])]
+        task = self.automation.submit(
+            str(data.get("request", "")), str(data.get("requirement_id", "")), refs, actor,
+            "codex" if data.get("execute_code") else "verify",
+            list(data.get("write_scope") or []), int(data.get("execution_timeout_seconds", 900)),
+            auto_start=False,
+        )
+        session = self.runtime.create_session(
+            project_id, str(data.get("request", ""))[:120], actor,
+            str(data.get("profile_id", "PROFILE-DEFAULT")), task["id"],
+        )
+        self.runtime.append(session["id"], "user/message", actor, {"request": data.get("request")})
+        self.runtime.append(
+            session["id"], "task/created", "harness", {"task_id": task["id"], "status": task["status"]},
+        )
+        self.runtime.append(
+            session["id"], "pipeline/stage", "harness",
+            {**pipeline_payload(str(task.get("status") or "queued")), "task_id": task["id"]},
+            source_key=f"pipeline-stage:created:{task['id']}",
+        )
+        self.automation.start(task["id"], actor="automation")
+        return {**task, "session_id": session["id"]}
+
+    def _promote_initiative(self, initiative_id: str, data: dict, actor: str) -> dict:
+        # The Web host is threaded. Serialize promotion so two different idempotency
+        # keys cannot create two Tasks for one approved initiative.
+        with self._initiative_promotion_lock:
+            initiative = self.initiatives.get(initiative_id)
+            if initiative.get("linked_task_id"):
+                task = self.tasks.get(str(initiative["linked_task_id"]))
+                session = self.runtime.session_for_task(task["id"])
+                return {"initiative": initiative, "task": task, "session_id": (session or {}).get("id")}
+            expected_version = int(data.get("expected_version", 0))
+            if initiative.get("decision") != "build" or initiative.get("status") != "approved_for_delivery":
+                raise ValueError("只有已批准的 Build 事项可以进入交付")
+            if int(initiative["version"]) != expected_version:
+                raise ValueError(f"事项版本已变化：期望 {expected_version}，实际 {initiative['version']}")
+            project_id = str(initiative.get("project_id") or "")
+            self.projects.get(project_id)
+            task = self._submit_project_task({
+                "project_id": project_id,
+                "request": self.initiatives.delivery_request(initiative),
+                "requirement_id": initiative.get("requirement_id") or "",
+                "business_refs": [f"INITIATIVE:{initiative_id}"],
+                "execute_code": bool(data.get("execute_code", False)),
+                "write_scope": list(data.get("write_scope") or []),
+                "execution_timeout_seconds": int(data.get("execution_timeout_seconds", 900)),
+                "profile_id": str(data.get("profile_id", "PROFILE-DEFAULT")),
+            }, actor)
+            linked = self.initiatives.link_delivery(initiative_id, task["id"], actor, expected_version)
+            return {"initiative": linked, "task": task, "session_id": task.get("session_id")}
 
     def _assign_employees(self, session_id: str, actor: str, data: dict) -> dict:
         assert_boss_actor(actor)
@@ -471,6 +599,7 @@ class HarnessPlatformAPI:
             "codex" if data.get("execute_code") else "verify",
             list(data.get("write_scope") or []),
             int(data.get("execution_timeout_seconds", 900)),
+            auto_start=False,
         )
         title = request[:120]
         if not session.get("task_id") or session.get("title") in {"", "新会话", "Untitled Session", "New Session"}:
@@ -484,7 +613,6 @@ class HarnessPlatformAPI:
             "harness",
             {"task_id": task["id"], "status": task["status"]},
         )
-        from .delivery_pipeline import pipeline_payload
         self.runtime.append(
             session_id,
             "pipeline/stage",
@@ -492,6 +620,7 @@ class HarnessPlatformAPI:
             {**pipeline_payload(str(task.get("status") or "queued")), "task_id": task["id"]},
             source_key=f"pipeline-stage:created:{task['id']}",
         )
+        self.automation.start(task["id"], actor="automation")
         return {**task, "session_id": session_id}
 
     @staticmethod

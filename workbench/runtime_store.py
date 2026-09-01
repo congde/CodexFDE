@@ -67,6 +67,8 @@ class HarnessRuntimeStore:
         self.path = Path(path).resolve()
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._after_append: Callable[[str, dict], None] | None = None
+        self._profile_change: Callable[[str, list[str]], Callable[[], None]] | None = None
+        self._runtime_status: Callable[[str], dict] | None = None
         with self.connect() as conn:
             conn.executescript(
                 """
@@ -90,6 +92,14 @@ class HarnessRuntimeStore:
                   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                 );
                 CREATE INDEX IF NOT EXISTS idx_harness_session_events ON harness_session_events(session_id,sequence);
+                CREATE TABLE IF NOT EXISTS harness_plugin_events(
+                  sequence INTEGER PRIMARY KEY AUTOINCREMENT,profile_id TEXT NOT NULL,plugin_id TEXT NOT NULL,
+                  from_state TEXT NOT NULL,to_state TEXT NOT NULL,generation INTEGER NOT NULL,
+                  dependency_epoch_json TEXT NOT NULL,error TEXT,rollback INTEGER NOT NULL DEFAULT 0,
+                  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
+                CREATE INDEX IF NOT EXISTS idx_harness_plugin_events
+                  ON harness_plugin_events(profile_id,sequence);
                 """
             )
             event_columns = {row["name"] for row in conn.execute("PRAGMA table_info(harness_session_events)")}
@@ -162,6 +172,16 @@ class HarnessRuntimeStore:
         """Optional hook(session_id, event_dict) for persist seam mirroring."""
         self._after_append = hook
 
+    def set_profile_change_handler(
+        self,
+        hook: Callable[[str, list[str]], Callable[[], None]] | None,
+    ) -> None:
+        """Install a reversible live-runtime hook for Profile composition changes."""
+        self._profile_change = hook
+
+    def set_runtime_status_handler(self, hook: Callable[[str], dict] | None) -> None:
+        self._runtime_status = hook
+
     @staticmethod
     def _plugin(row: sqlite3.Row) -> dict:
         item = dict(row)
@@ -193,19 +213,47 @@ class HarnessRuntimeStore:
         selected = [catalog[item] for item in profile["plugin_ids"] if item in catalog and catalog[item]["enabled"]]
         required = {"sessions", "workspace", "fs", "shell", "tools", "llm", "eval", "execution", "approval", "permission"}
         seams = {item["seam"] for item in selected}
-        return {
+        missing_seams = required - seams
+        result = {
             "profile": profile,
             "plugins": selected,
             "seams": sorted(seams),
-            "missing_seams": sorted(required - seams),
-            "ready": required <= seams,
+            "missing_seams": sorted(missing_seams),
+            "ready": not missing_seams,
         }
+        if self._runtime_status is not None:
+            runtime = self._runtime_status(profile_id)
+            runtime_missing = required - set(runtime.get("services") or {})
+            result["runtime"] = runtime
+            result["runtime_ready"] = not runtime.get("pending_plugins") and not runtime_missing
+            result["missing_seams"] = sorted(missing_seams | runtime_missing)
+            result["ready"] = bool(result["ready"] and result["runtime_ready"])
+        return result
 
     def set_plugin_enabled(self, plugin_id: str, enabled: bool) -> dict:
-        with self.connect() as conn:
-            if not conn.execute("SELECT 1 FROM harness_plugins WHERE id=?", (plugin_id,)).fetchone():
-                raise KeyError(plugin_id)
-            conn.execute("UPDATE harness_plugins SET enabled=? WHERE id=?", (1 if enabled else 0, plugin_id))
+        catalog = {item["id"]: item for item in self.plugins()}
+        if plugin_id not in catalog:
+            raise KeyError(plugin_id)
+        if bool(catalog[plugin_id]["enabled"]) == bool(enabled):
+            return catalog[plugin_id]
+        catalog[plugin_id]["enabled"] = bool(enabled)
+        rollbacks: list[Callable[[], None]] = []
+        try:
+            if self._profile_change is not None:
+                for profile in self.profiles():
+                    if plugin_id not in profile["plugin_ids"]:
+                        continue
+                    desired = [
+                        item for item in profile["plugin_ids"]
+                        if item in catalog and catalog[item]["enabled"]
+                    ]
+                    rollbacks.append(self._profile_change(profile["id"], desired))
+            with self.connect() as conn:
+                conn.execute("UPDATE harness_plugins SET enabled=? WHERE id=?", (1 if enabled else 0, plugin_id))
+        except Exception:
+            for rollback in reversed(rollbacks):
+                rollback()
+            raise
         return self.get_plugin(plugin_id)
 
     def get_plugin(self, plugin_id: str) -> dict:
@@ -235,14 +283,73 @@ class HarnessRuntimeStore:
             plugin_ids.append(existing_id)
         if not replaced:
             plugin_ids.append(plugin_id)
-        with self.connect() as conn:
-            conn.execute(
-                "UPDATE harness_profiles SET plugin_ids_json=? WHERE id=?",
-                (json.dumps(plugin_ids), profile_id),
-            )
-        if not target["enabled"]:
-            self.set_plugin_enabled(plugin_id, True)
+        effective_ids = [
+            item for item in plugin_ids
+            if item == plugin_id or (item in catalog and catalog[item]["enabled"])
+        ]
+        rollback: Callable[[], None] | None = None
+        try:
+            if self._profile_change is not None:
+                rollback = self._profile_change(profile_id, effective_ids)
+            with self.connect() as conn:
+                conn.execute(
+                    "UPDATE harness_profiles SET plugin_ids_json=? WHERE id=?",
+                    (json.dumps(plugin_ids), profile_id),
+                )
+                if not target["enabled"]:
+                    conn.execute("UPDATE harness_plugins SET enabled=1 WHERE id=?", (plugin_id,))
+        except Exception:
+            if rollback is not None:
+                rollback()
+            raise
         return self.composition(profile_id)
+
+    def record_plugin_event(self, event: dict) -> dict:
+        required = {"profile_id", "plugin_id", "from_state", "to_state", "generation"}
+        missing = required - set(event)
+        if missing:
+            raise ValueError(f"插件生命周期事件缺少字段：{', '.join(sorted(missing))}")
+        with self.connect() as conn:
+            cursor = conn.execute(
+                "INSERT INTO harness_plugin_events("
+                "profile_id,plugin_id,from_state,to_state,generation,dependency_epoch_json,error,rollback"
+                ") VALUES(?,?,?,?,?,?,?,?)",
+                (
+                    str(event["profile_id"]), str(event["plugin_id"]),
+                    str(event["from_state"]), str(event["to_state"]), int(event["generation"]),
+                    json.dumps(event.get("dependency_epoch") or {}, ensure_ascii=False),
+                    str(event["error"]) if event.get("error") else None,
+                    1 if event.get("rollback") else 0,
+                ),
+            )
+            row = conn.execute(
+                "SELECT * FROM harness_plugin_events WHERE sequence=?",
+                (cursor.lastrowid,),
+            ).fetchone()
+        return self._plugin_event(row)
+
+    @staticmethod
+    def _plugin_event(row: sqlite3.Row) -> dict:
+        item = dict(row)
+        item["dependency_epoch"] = json.loads(item.pop("dependency_epoch_json"))
+        item["rollback"] = bool(item["rollback"])
+        return item
+
+    def plugin_events(self, profile_id: str | None = None, limit: int = 100) -> list[dict]:
+        limit = max(1, min(int(limit), 1000))
+        with self.connect() as conn:
+            if profile_id:
+                rows = conn.execute(
+                    "SELECT * FROM harness_plugin_events WHERE profile_id=? "
+                    "ORDER BY sequence DESC LIMIT ?",
+                    (profile_id, limit),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM harness_plugin_events ORDER BY sequence DESC LIMIT ?",
+                    (limit,),
+                ).fetchall()
+        return [self._plugin_event(row) for row in rows]
 
     def dump_config(self, profile_id: str = "PROFILE-DEFAULT") -> dict:
         composition = self.composition(profile_id)

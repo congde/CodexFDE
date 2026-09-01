@@ -3,6 +3,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 import sqlite3
+from datetime import date, timedelta
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from pathlib import Path
@@ -326,7 +327,7 @@ class PurchasingAndFinanceTests(ProductionFixture):
         updated = self.purchasing.update_draft(
             self.buyer, order["id"], order["version"],
             lines=[{"product_id": self.product["id"], "quantity": 3, "unit_price_cents": 6500}],
-            freight_cents=500, expected_date="2026-08-20",
+            freight_cents=500, expected_date=(date.today() + timedelta(days=7)).isoformat(),
         )
         self.assertEqual(3, updated["lines"][0]["ordered_quantity"])
         self.assertEqual(500, updated["freight_cents"])
@@ -408,6 +409,49 @@ class PurchasingAndFinanceTests(ProductionFixture):
         invoice = self.finance.create_invoice_from_purchase(self.admin, order["id"])
         self.assertEqual("payable", invoice["invoice_type"])
         self.assertGreater(invoice["outstanding_cents"], 0)
+
+    def test_ap_aging_prioritizes_open_supplier_exposure(self) -> None:
+        as_of = date.today()
+
+        def payable(due_offset: int, key: str) -> dict:
+            order = self.received_purchase(2)
+            due = as_of + timedelta(days=due_offset)
+            return self.finance.create_invoice_from_purchase(
+                self.admin, order["id"],
+                invoice_date=(due - timedelta(days=30)).isoformat(),
+                due_date=due.isoformat(), supplier_invoice_number=f"SUP-{key}",
+            )
+
+        current = payable(5, "CURRENT")
+        overdue = payable(-20, "OVERDUE")
+        paid = payable(-45, "PAID")
+        voided = payable(-100, "VOID")
+        partial = overdue["total_cents"] // 2
+        self.finance.record_payment(
+            self.admin, "disbursement", "supplier", self.supplier["id"], partial,
+            allocations=[{"invoice_id": overdue["id"], "amount_cents": partial}],
+        )
+        self.finance.record_payment(
+            self.admin, "disbursement", "supplier", self.supplier["id"], paid["total_cents"],
+            allocations=[{"invoice_id": paid["id"], "amount_cents": paid["total_cents"]}],
+        )
+        self.finance.void_invoice(self.admin, voided["id"], "重复供应商发票")
+
+        aging = self.reports.ap_aging(self.admin, as_of.isoformat())
+        self.assertEqual(current["total_cents"], aging["buckets"]["current"])
+        self.assertEqual(overdue["total_cents"] - partial, aging["buckets"]["1_30"])
+        self.assertEqual(2, len(aging["items"]))
+        self.assertTrue(all(item["partner_name"] == self.supplier["name"] for item in aging["items"]))
+        self.assertEqual(aging["overdue_cents"], self.reports.dashboard(self.admin)["overdue_payable_cents"])
+        with self.assertRaises(ValidationError):
+            self.reports.ap_aging(self.admin, "2026-02-30")
+
+        api = APIRouter(self.store, load_settings(self.runtime))
+        response = api.dispatch("GET", f"/api/v1/reports/ap-aging?as_of={as_of.isoformat()}", {}, {})
+        self.assertEqual(200, response.status)
+        self.assertEqual(aging["buckets"], response.body["buckets"])
+        invalid = api.dispatch("GET", "/api/v1/reports/ap-aging?as_of=not-a-date", {}, {})
+        self.assertEqual(422, invalid.status)
 
     def test_purchase_invoice_requires_three_way_quantity_and_price_match(self) -> None:
         order = self.received_purchase(5)

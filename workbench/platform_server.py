@@ -87,7 +87,9 @@ def serve(host: str = "127.0.0.1", port: int = 8010,
     try: server.serve_forever()
     except KeyboardInterrupt:
         pass
-    finally: server.server_close()
+    finally:
+        server.server_close()
+        api.shutdown()
 
 
 def main() -> int:

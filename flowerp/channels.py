@@ -381,16 +381,108 @@ class EcommerceChannelService:
         for row in rows: row["payload"] = json.loads(row.pop("payload_json"))
         return rows
 
-    def complete_callback(self, principal: Principal, task_id: str, success: bool, error: str = "") -> dict:
+    def claim_callbacks(self, principal: Principal, worker_id: str, limit: int = 20,
+                        lease_seconds: int = 60) -> list[dict]:
+        """Atomically lease ready callback tasks to one named integration worker."""
         principal.require("sales.write")
+        owner = worker_id.strip()
+        if not owner:
+            raise ValidationError("渠道回传 Worker ID 不能为空")
+        if len(owner) > 128:
+            raise ValidationError("渠道回传 Worker ID 不能超过 128 个字符")
+        limit = max(1, min(int(limit), 100))
+        lease_seconds = max(5, min(int(lease_seconds), 3600))
         with self.store.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            expired = conn.execute(
+                "SELECT id,processing_owner,attempts FROM channel_callback_tasks "
+                "WHERE organization_id=? AND status='processing' "
+                "AND lease_expires_at IS NOT NULL AND lease_expires_at<=CURRENT_TIMESTAMP",
+                (principal.organization_id,),
+            ).fetchall()
+            conn.execute(
+                "UPDATE channel_callback_tasks SET status=CASE WHEN attempts>=5 THEN 'dead_letter' ELSE 'failed' END,"
+                "processing_owner='',lease_expires_at=NULL,"
+                "available_at=CURRENT_TIMESTAMP,last_error=CASE WHEN last_error='' "
+                "THEN 'processing lease expired' ELSE last_error||'; processing lease expired' END,"
+                "completed_at=CASE WHEN attempts>=5 THEN CURRENT_TIMESTAMP ELSE completed_at END "
+                "WHERE organization_id=? AND status='processing' "
+                "AND lease_expires_at IS NOT NULL AND lease_expires_at<=CURRENT_TIMESTAMP",
+                (principal.organization_id,),
+            )
+            rows = conn.execute(
+                "SELECT id FROM channel_callback_tasks WHERE organization_id=? "
+                "AND status IN ('pending','failed') AND available_at<=CURRENT_TIMESTAMP AND attempts<5 "
+                "ORDER BY available_at,created_at,id LIMIT ?",
+                (principal.organization_id, limit),
+            ).fetchall()
+            ids = [row["id"] for row in rows]
+            if ids:
+                placeholders = ",".join("?" for _ in ids)
+                conn.execute(
+                    f"UPDATE channel_callback_tasks SET status='processing',attempts=attempts+1,"
+                    f"processing_owner=?,lease_expires_at=datetime('now',?) WHERE id IN ({placeholders}) "
+                    "AND organization_id=? AND status IN ('pending','failed') AND available_at<=CURRENT_TIMESTAMP",
+                    (owner, f"+{lease_seconds} seconds", *ids, principal.organization_id),
+                )
+                claimed = conn.execute(
+                    f"SELECT * FROM channel_callback_tasks WHERE id IN ({placeholders}) "
+                    "AND organization_id=? AND status='processing' AND processing_owner=? ORDER BY created_at,id",
+                    (*ids, principal.organization_id, owner),
+                ).fetchall()
+            else:
+                claimed = []
+            for row in expired:
+                expired_status = "dead_letter" if int(row["attempts"]) >= 5 else "failed"
+                self.audit.record(
+                    conn, AuditContext(principal), "channel.callback.lease_expired", "channel_callback", row["id"],
+                    before={"processing_owner": row["processing_owner"]}, after={"status": expired_status},
+                )
+            for row in claimed:
+                self.audit.record(
+                    conn, AuditContext(principal), "channel.callback.claim", "channel_callback", row["id"],
+                    after={"worker_id": owner, "attempt": row["attempts"], "lease_seconds": lease_seconds},
+                )
+        result = [dict(row) for row in claimed]
+        for row in result:
+            row["payload"] = json.loads(row.pop("payload_json"))
+        return result
+
+    def complete_callback(self, principal: Principal, task_id: str, success: bool, error: str = "",
+                          worker_id: str = "") -> dict:
+        principal.require("sales.write")
+        owner = worker_id.strip()
+        if not owner:
+            raise ValidationError("完成渠道回传必须提供持有租约的 Worker ID")
+        failure = error.strip()
+        if not success and not failure:
+            raise ValidationError("渠道回传失败必须保留错误证据")
+        with self.store.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
             task = conn.execute("SELECT * FROM channel_callback_tasks WHERE id=? AND organization_id=?", (task_id, principal.organization_id)).fetchone()
             if not task: raise NotFound("渠道回传任务不存在")
             if task["status"] == "succeeded": return dict(task)
-            attempts = int(task["attempts"]) + 1
+            if task["status"] != "processing" or task["processing_owner"] != owner:
+                raise Conflict("渠道回传任务未被当前 Worker 领取或租约所有权已变化")
+            attempts = int(task["attempts"])
             status = "succeeded" if success else ("dead_letter" if attempts >= 5 else "failed")
-            conn.execute("UPDATE channel_callback_tasks SET status=?,attempts=?,last_error=?,processing_owner='',lease_expires_at=NULL,completed_at=CASE WHEN ?='succeeded' THEN CURRENT_TIMESTAMP ELSE completed_at END WHERE id=?", (status, attempts, "" if success else error.strip()[:1000], status, task_id))
-        return self.store.row("SELECT * FROM channel_callback_tasks WHERE id=?", (task_id,)) or {}
+            retry_delay = min(30 * (2 ** max(0, attempts - 1)), 3600)
+            conn.execute(
+                "UPDATE channel_callback_tasks SET status=?,last_error=?,processing_owner='',lease_expires_at=NULL,"
+                "available_at=CASE WHEN ?='failed' THEN datetime('now',?) ELSE available_at END,"
+                "completed_at=CASE WHEN ? IN ('succeeded','dead_letter') THEN CURRENT_TIMESTAMP ELSE completed_at END "
+                "WHERE id=? AND organization_id=? AND status='processing' AND processing_owner=?",
+                (status, "" if success else failure[:1000], status, f"+{retry_delay} seconds", status,
+                 task_id, principal.organization_id, owner),
+            )
+            self.audit.record(
+                conn, AuditContext(principal), "channel.callback.complete", "channel_callback", task_id,
+                before={"status": "processing", "worker_id": owner},
+                after={"status": status, "attempt": attempts, "error": "" if success else failure[:1000],
+                       "retry_after_seconds": retry_delay if status == "failed" else None},
+            )
+            current = conn.execute("SELECT * FROM channel_callback_tasks WHERE id=?", (task_id,)).fetchone()
+        return dict(current) if current else {}
 
     def overview(self, principal: Principal) -> dict:
         principal.require("sales.read")
@@ -400,5 +492,6 @@ class EcommerceChannelService:
             "unconfigured_shops": sum(1 for x in self.list_shops(principal) if x["connection_status"] == "unconfigured"),
             "waiting_review": int(self.store.scalar("SELECT COUNT(*) FROM channel_orders WHERE organization_id=? AND status='received'", (org,)) or 0),
             "blocked": int(self.store.scalar("SELECT COUNT(*) FROM channel_orders WHERE organization_id=? AND status IN ('blocked','exception')", (org,)) or 0),
-            "pending_callbacks": int(self.store.scalar("SELECT COUNT(*) FROM channel_callback_tasks WHERE organization_id=? AND status IN ('pending','failed')", (org,)) or 0),
+            "pending_callbacks": int(self.store.scalar("SELECT COUNT(*) FROM channel_callback_tasks WHERE organization_id=? AND status IN ('pending','processing','failed')", (org,)) or 0),
+            "dead_letter_callbacks": int(self.store.scalar("SELECT COUNT(*) FROM channel_callback_tasks WHERE organization_id=? AND status='dead_letter'", (org,)) or 0),
         }

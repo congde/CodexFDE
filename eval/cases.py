@@ -1,15 +1,16 @@
 from __future__ import annotations
 
 import tempfile
+from datetime import date, timedelta
 from pathlib import Path
 
-from flowerp import ERPService, ERPStore, InventoryService, LedgerService, MasterDataService, SalesService
+from flowerp import ERPService, ERPStore, InventoryService, LedgerService, MasterDataService, ReportService, SalesService
 from flowerp.finance import FinanceService
 from flowerp.cash_management import CashManagementService
 from flowerp.channels import EcommerceChannelService
 from flowerp.import_export import ImportExportService
 from flowerp.identity import Principal, SYSTEM_PRINCIPAL
-from flowerp.models import ApprovalRequired, Conflict, InsufficientStock, InvalidTransition, OrderLine
+from flowerp.models import ApprovalRequired, Conflict, InsufficientStock, InvalidTransition, OrderLine, ValidationError
 from flowerp.operations import BackupService
 from flowerp.purchasing import PurchasingService
 from eval.progression import require_capability
@@ -176,6 +177,57 @@ def ecommerce_channel_order_is_idempotent_and_guarded() -> str:
         tmp.cleanup()
 
 
+def channel_callback_lease_is_exclusive_and_bounded() -> str:
+    tmp = tempfile.TemporaryDirectory(prefix="flowerp-eval-callback-lease-")
+    try:
+        store = ERPStore(Path(tmp.name) / "eval.db")
+        from flowerp.identity import IdentityService
+        IdentityService(store).ensure_local_defaults()
+        master = MasterDataService(store); channels = EcommerceChannelService(store)
+        product = master.create_product(SYSTEM_PRINCIPAL, "EVAL-CALLBACK", "回传验收商品", 1000, 500)
+        customer = master.create_customer(
+            SYSTEM_PRINCIPAL, "EVAL-CALLBACK-PLATFORM", "回传平台客户", credit_limit_cents=100000,
+        )
+        shop = channels.create_shop(
+            SYSTEM_PRINCIPAL, "mock", "EVAL-CALLBACK-SHOP", "回传验收店",
+            customer["id"], "SITE-MAIN", "eval-callback-shop",
+        )
+        channels.map_listing(
+            SYSTEM_PRINCIPAL, shop["id"], "item-callback", "sku-callback", "回传验收商品",
+            [{"product_id": product["id"], "quantity": 1, "revenue_share_basis_points": 10000}],
+        )
+        payload = {
+            "external_order_id": "EVAL-CALLBACK-ORDER-1", "external_status": "paid",
+            "order_time": "2026-08-31T10:00:00+08:00", "currency": "CNY",
+            "goods_cents": 1000, "total_cents": 1000, "recipient": "验收员",
+            "phone": "13800138000", "province": "上海市", "city": "上海市", "street": "回传路 1 号",
+            "lines": [{"external_line_id": "1", "external_product_id": "item-callback",
+                       "external_sku_id": "sku-callback", "quantity": 1,
+                       "unit_price_cents": 1000, "total_cents": 1000}],
+        }
+        order = channels.ingest_orders(SYSTEM_PRINCIPAL, shop["id"], [payload])["items"][0]
+        channels.cancel_order(SYSTEM_PRINCIPAL, order["id"], "验收取消")
+        claimed = channels.claim_callbacks(SYSTEM_PRINCIPAL, "eval-worker-a", limit=1, lease_seconds=60)
+        assert len(claimed) == 1 and claimed[0]["status"] == "processing"
+        assert claimed[0]["attempts"] == 1 and claimed[0]["processing_owner"] == "eval-worker-a"
+        assert channels.claim_callbacks(SYSTEM_PRINCIPAL, "eval-worker-b", limit=1) == []
+        try:
+            channels.complete_callback(SYSTEM_PRINCIPAL, claimed[0]["id"], True, worker_id="eval-worker-b")
+        except Conflict:
+            pass
+        else:
+            raise AssertionError("非租约持有者确认了渠道回传")
+        failed = channels.complete_callback(
+            SYSTEM_PRINCIPAL, claimed[0]["id"], False, "platform throttled", "eval-worker-a",
+        )
+        assert failed["status"] == "failed" and failed["last_error"] == "platform throttled"
+        assert failed["available_at"] > failed["created_at"]
+        assert channels.claim_callbacks(SYSTEM_PRINCIPAL, "eval-worker-b", limit=1) == []
+        return "渠道回传仅允许一个具名 Worker 持有租约；越权确认被阻断，失败保留证据并进入有界退避"
+    finally:
+        tmp.cleanup()
+
+
 def no_committed_secrets() -> str:
     require_capability("no_secrets")
     root = Path(__file__).resolve().parent.parent
@@ -325,6 +377,60 @@ def purchase_invoice_three_way_match() -> str:
         tmp.cleanup()
 
 
+def payable_aging_tracks_open_supplier_exposure() -> str:
+    tmp = tempfile.TemporaryDirectory(prefix="flowerp-eval-ap-aging-")
+    try:
+        store = ERPStore(Path(tmp.name) / "eval.db")
+        from flowerp.identity import IdentityService
+        IdentityService(store).ensure_local_defaults()
+        buyer = Principal("eval-ap-buyer", "ORG-DEFAULT", "buyer", "采购制单", SYSTEM_PRINCIPAL.permissions)
+        approver = Principal("eval-ap-approver", "ORG-DEFAULT", "approver", "采购审批", SYSTEM_PRINCIPAL.permissions)
+        master = MasterDataService(store); purchasing = PurchasingService(store)
+        finance = FinanceService(store); reports = ReportService(store)
+        product = master.create_product(SYSTEM_PRINCIPAL, "EVAL-AP", "应付账龄验收商品", 10_000, 6_000)
+        supplier = master.create_supplier(SYSTEM_PRINCIPAL, "EVAL-AP-SUP", "应付账龄验收供应商")
+
+        def payable(due_offset: int, reference: str) -> dict:
+            order = purchasing.create_order(
+                buyer, supplier["id"], "SITE-MAIN",
+                [{"product_id": product["id"], "quantity": 2, "unit_price_cents": 6_000}],
+            )
+            purchasing.submit(buyer, order["id"]); purchasing.approve(approver, order["id"])
+            line_id = purchasing.order(SYSTEM_PRINCIPAL, order["id"])["lines"][0]["id"]
+            receipt = purchasing.create_receipt(
+                SYSTEM_PRINCIPAL, order["id"], "LOC-MAIN-STOCK",
+                [{"purchase_line_id": line_id, "accepted_quantity": 2}],
+            )
+            purchasing.post_receipt(SYSTEM_PRINCIPAL, receipt["id"], f"eval-ap-{reference}")
+            due = date.today() + timedelta(days=due_offset)
+            return finance.create_invoice_from_purchase(
+                SYSTEM_PRINCIPAL, order["id"],
+                invoice_date=(due - timedelta(days=30)).isoformat(), due_date=due.isoformat(),
+                supplier_invoice_number=reference,
+            )
+
+        current = payable(5, "EVAL-AP-CURRENT")
+        overdue = payable(-20, "EVAL-AP-OVERDUE")
+        allocated = overdue["total_cents"] // 2
+        finance.record_payment(
+            SYSTEM_PRINCIPAL, "disbursement", "supplier", supplier["id"], allocated,
+            allocations=[{"invoice_id": overdue["id"], "amount_cents": allocated}],
+        )
+        aging = reports.ap_aging(SYSTEM_PRINCIPAL, date.today().isoformat())
+        assert aging["buckets"]["current"] == current["total_cents"], aging
+        assert aging["buckets"]["1_30"] == overdue["total_cents"] - allocated, aging
+        assert aging["overdue_cents"] == reports.dashboard(SYSTEM_PRINCIPAL)["overdue_payable_cents"]
+        try:
+            reports.ap_aging(SYSTEM_PRINCIPAL, "2026-02-30")
+        except ValidationError:
+            pass
+        else:
+            raise AssertionError("无效应付账龄日期未被拒绝")
+        return "应付账龄按到期日分桶，部分付款只保留未结余额，并与驾驶舱逾期应付一致"
+    finally:
+        tmp.cleanup()
+
+
 def double_entry_fifo_and_subledger_reconciliation() -> str:
     tmp = tempfile.TemporaryDirectory(prefix="flowerp-eval-ledger-")
     try:
@@ -430,6 +536,24 @@ def delivery_evidence_and_review_controls() -> str:
             raise AssertionError("任务能够在没有具名审核时完成")
         delivery = store.review(task["id"], "delivery-reviewer", "approve", "阻断证据完整")
         assert delivery["status"] == "completed" and delivery["reviewed_by"] == "delivery-reviewer"
+        failure_automation = DeliveryAutomation(store, tmp.name, max_attempts=1, suite_runner=lambda *_args, **_kwargs: {
+            "summary": {"decision": "block", "blocking_failed": 1},
+            "results": [{"name": "observed_failure", "level": "blocking", "passed": False,
+                         "evidence": "稳定失败"}],
+        })
+        failed_task = failure_automation.submit(
+            "验证自动失败进入待审反馈", "REQ-EVAL-FAILURE-OBSERVATION", ["SKU:NOTEBOOK-AI"],
+            actor="eval-requester",
+        )
+        failed_task = failure_automation.wait(failed_task["id"])
+        assert failed_task["status"] == "rework"
+        automatic_feedback = next(
+            item for item in feedback_summary(str(path))["items"]
+            if item["task_id"] == failed_task["id"]
+        )
+        assert automatic_feedback["status"] == "pending_review"
+        assert automatic_feedback["source"] == "automation:rework"
+        assert automatic_feedback["evidence"]["blocking_failures"] == ["observed_failure"]
         feedback = add_feedback(task["id"], "eval", "证据待确认", "人工复核", str(path))
         assert feedback["status"] == "pending_review"
         reviewed = review_feedback(feedback["id"], "eval-reviewer", "accept", "证据有效", str(path))
@@ -440,10 +564,69 @@ def delivery_evidence_and_review_controls() -> str:
             pass
         else:
             raise AssertionError("已审核反馈仍可重复改变结论")
-        assert feedback_summary(str(path))["pending_review"] == 0
-        return "需求自动生成任务级 Spec 并推进至审核；完成需要具名审核；反馈默认待审且审核后不可重复改写"
+        final_feedback = feedback_summary(str(path))
+        assert final_feedback["pending_review"] == 1 and final_feedback["accepted"] == 1
+        return "需求自动生成 Spec 并推进至审核；失败自动沉淀为幂等待审反馈；完成与反馈提升均保留具名人审"
     finally:
         tmp.cleanup()
+
+
+def plugin_lifecycle_is_reversible() -> str:
+    from workbench.plugin_runtime import PluginActivationError, PluginContract, PluginRuntime
+
+    trace: list[str] = []
+    runtime = PluginRuntime("EVAL-PLUGIN-LIFECYCLE")
+
+    def provider(name: str, *, fail: bool = False):
+        def start(ctx, _config):
+            trace.append(f"start:{name}")
+            ctx.effect(lambda: lambda: trace.append(f"stop:{name}"), f"resource:{name}")
+            if fail:
+                raise RuntimeError("intentional activation failure")
+            return name
+
+        return start
+
+    def consumer(ctx, _config):
+        current = str(ctx.service("engine"))
+        trace.append(f"start:consumer:{current}")
+        ctx.on("probe", lambda value: trace.append(f"event:{value}"))
+        ctx.effect(lambda: lambda: trace.append("stop:consumer"), "consumer-resource")
+        return current
+
+    runtime.register(PluginContract(
+        "engine.a", frozenset({"engine"}), frozenset(), provider("a"),
+    ))
+    runtime.register(PluginContract(
+        "engine.b", frozenset({"engine"}), frozenset(), provider("b"),
+    ))
+    runtime.register(PluginContract(
+        "engine.broken", frozenset({"engine"}), frozenset(), provider("broken", fail=True),
+    ))
+    runtime.register(PluginContract(
+        "consumer", frozenset({"consumer"}), frozenset({"engine"}), consumer,
+    ))
+
+    runtime.reconcile(["engine.a", "consumer"])
+    runtime.reconcile(["engine.b", "consumer"])
+    assert runtime.service("consumer") == "b"
+    assert trace[:6] == [
+        "start:a", "start:consumer:a", "stop:consumer", "stop:a", "start:b", "start:consumer:b",
+    ]
+    try:
+        runtime.reconcile(["engine.broken", "consumer"])
+    except PluginActivationError:
+        pass
+    else:
+        raise AssertionError("损坏 Provider 激活失败后仍被接受")
+    assert runtime.service("engine") == "b" and runtime.service("consumer") == "b"
+    assert "start:broken" in trace and "stop:broken" in trace
+    runtime.events.emit("probe", "before-shutdown")
+    assert trace.count("event:before-shutdown") == 1
+    runtime.shutdown()
+    runtime.events.emit("probe", "after-shutdown")
+    assert "event:after-shutdown" not in trace and runtime.events.listener_count() == 0
+    return "Provider 按依赖逆序卸载并重载；失败副作用被清理、旧组合恢复，监听器无残留"
 
 
 def web_api_and_persistence_projection_agree() -> str:
@@ -455,10 +638,28 @@ def web_api_and_persistence_projection_agree() -> str:
     try:
         runtime = Path(tmp.name)
         app = App(runtime)
-        assert app.tasks is None
-        assert not (runtime / "workbench.db").exists()
-        moved = app.api.dispatch("GET", "/api/v1/tasks?limit=100", {}, None, "127.0.0.1")
-        assert moved.status == 410
+        assert app.tasks is not None
+        assert (runtime / "workbench.db").exists()
+        course_task = app.tasks.create(
+            "验证课程 Web 投影权威任务状态", "REQ-EVAL-WEB-COURSE-001", ["REQUIREMENT:EVAL-WEB"],
+        )
+        course_response = app.api.dispatch("GET", "/api/v1/tasks?limit=100", {}, None, "127.0.0.1")
+        assert course_response.status == 200
+        api_course_task = next(
+            item for item in course_response.body["items"] if item["id"] == course_task["id"]
+        )
+        with app.tasks.connect() as connection:
+            persisted_course_status = connection.execute(
+                "SELECT status FROM tasks WHERE id=?", (course_task["id"],)
+            ).fetchone()["status"]
+        assert api_course_task["status"] == course_task["status"] == persisted_course_status == "queued"
+        course_view = app.api.dispatch(
+            "GET", f"/api/v1/delivery/views/{course_task['id']}", {}, None, "127.0.0.1",
+        )
+        assert course_view.status == 200
+        assert course_view.body["schema"] == "workbench.delivery-view/v1"
+        assert course_view.body["status"]["code"] == persisted_course_status
+        assert course_view.body["status"]["next_action"]
 
         harness = HarnessPlatformAPI(runtime / "harness", Path(__file__).resolve().parent.parent)
         task = harness.tasks.create(
@@ -472,6 +673,10 @@ def web_api_and_persistence_projection_agree() -> str:
                 "SELECT status FROM tasks WHERE id=?", (task["id"],)
             ).fetchone()["status"]
         assert api_task["status"] == task["status"] == persisted_status == "queued"
+        harness_view = harness.dispatch("GET", f"/api/v1/delivery/views/{task['id']}", {}, {})
+        assert harness_view.status == 200
+        assert harness_view.body["schema"] == course_view.body["schema"]
+        assert harness_view.body["status"]["code"] == persisted_status
         assert (runtime / "harness/tasks.db").is_file()
         assert not (runtime / "harness/flowerp.db").exists()
 
@@ -486,11 +691,14 @@ def web_api_and_persistence_projection_agree() -> str:
 
         web_source = (Path(__file__).resolve().parent.parent / "web" / "app.js").read_text(encoding="utf-8")
         assert 'api("/api/v1/products?limit=500")' in web_source
+        assert 'api("/api/v1/delivery/views?limit=100")' in web_source
+        assert 'delivery:"交付证据"' in web_source
         erp_shell = (Path(__file__).resolve().parent.parent / "web" / "index.html").read_text(encoding="utf-8")
+        assert 'href="#delivery"' in erp_shell
         assert 'href="http://127.0.0.1:8010"' in erp_shell
         harness_source = (Path(__file__).resolve().parent.parent / "harness_web" / "app.js").read_text(encoding="utf-8")
-        assert 'api("/api/v1/tasks?limit=200")' in harness_source
+        assert 'api("/api/v1/delivery/views?limit=200")' in harness_source
         assert 'api("/api/v1/course/status")' in harness_source
-        return "Harness Web/Task SQLite 与 FlowERP Web/ERP SQLite 分别对账，且两套运行数据库物理隔离"
+        return "课程 Web 与可选 Harness 复用同一 DeliveryView；Task API/SQLite 和 FlowERP API/SQLite 状态一致"
     finally:
         tmp.cleanup()

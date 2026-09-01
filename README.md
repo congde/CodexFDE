@@ -6,6 +6,12 @@
 
 平台架构参考 DeepSeek 官方 Harness 的插件化、Profile、capability seam 和追加式 Session 日志思想，但课程 V0 是 Python 标准库的教学实现，不复制 Cordis 内核，也不宣称功能等价。版本化对照见 [`DeepSeek Harness 参考架构与差距`](docs/courses/DeepSeek-Harness参考架构与差距.md)。
 
+工作台首先是一套围绕开发者核心工作，连接输入、生产、验证、交付、反馈和能力升级的长期运行系统。服务对象、核心产出、通用内核、开发者实例及设计红线见 [`个人 AI 工作台｜产品定义与能力模型`](docs/个人AI工作台-产品定义与能力模型.md)。
+
+项目的统一目标、权威边界、16 讲建造顺序与当前收敛清单见 [`项目全景｜工作台驱动 FlowERP 持续交付`](docs/项目全景-工作台驱动FlowERP持续交付.md)。
+
+开课、跟课和验收的统一入口见 [`课程指南｜个人 AI 研发工作台驱动 FlowERP 持续交付`](docs/FlowERP-Codex-FDE行动营-16讲课程汇总.md)；逐讲字段仍以课程大纲合同为准。
+
 ```text
 方法主线：L01–L04 构建 Workbench V0，后续持续升级
 产品主线：通过工作台逐讲构建 FlowERP
@@ -24,11 +30,12 @@ ERP 需求 → Spec → 工作台受控实现 → Eval / Harness → Repair / Lo
 | 目录 | 职责 |
 | --- | --- |
 | `workbench/` | Spec、任务 API、CLI、执行沙箱、摘要与反馈 |
+| `workbench/delivery_view.py` | Task、Spec、执行、Eval、审核、反馈与进化的统一只读投影 |
 | `eval/` | 唯一质量入口；Hook、CI、Loop、Graph 都复用它 |
 | `agent/` | 失败任务映射、有界 Loop、显式状态图与人工审核 |
 | `flowerp/` | ERP 领域模型、SQLite 持久化与业务不变量 |
 | `harness_web/` | **可选** Harness 平台驾驶舱（非大纲必做；含 OPC 视图） |
-| `web/` | FlowERP 业务系统前端（课程跟跑必做），不承载 Harness 页面 |
+| `web/` | FlowERP 业务系统前端 + L14 最小交付状态与证据下钻（课程跟跑必做），不替代完整 Harness 驾驶舱 |
 | `tests/` | 单元、集成、HTTP、并发与恢复测试 |
 | `deploy/` | 容器化与冷启动 |
 | `course/tasks/` | 16 讲目标卡、命令卡、验收卡（本地课件） |
@@ -167,11 +174,15 @@ harness-workbench bootstrap
 harness-workbench status
 harness-workbench composition --profile PROFILE-HEADLESS
 harness-workbench dump-config
+harness-workbench plugin-runtime --profile PROFILE-DEFAULT
+harness-workbench plugin-events --profile PROFILE-DEFAULT --limit 20
 harness-workbench run --request "验证库存预占" --requirement-id REQ-001
 harness-workbench --json mcp status
 ```
 
 `run` 对标 dsh headless：最终助手答案打 **stdout**，状态元数据打 **stderr**，退出码 `0/1`。
+
+Profile 插件不再只是数据库里的启用列表：工作台会根据 `requires/provides` 建立活动服务，Provider 切换时逆序清理副作用并重载依赖方，失败则恢复旧组合。设计与边界见 [`插件生命周期与可逆副作用`](docs/architecture/插件生命周期与可逆副作用.md)。
 
 ### 4. 可选：Web 面板（8010）
 
@@ -385,7 +396,7 @@ FlowERP 是可运行的单组织、单写实例 ERP：页面操作进入真实 A
 ```text
 销售：订单 → 信用检查 → 库存预占 → 发货 → 应收 → 收款核销
 采购：草稿 → 四眼审批 → 质检收货 → 三单匹配 → 应付 → 付款核销
-电商：店铺接入 → 幂等接单 → SKU 映射/拦截 → 审单 → 预占 → 回传
+电商：店铺接入 → 幂等接单 → SKU 映射/拦截 → 审单 → 预占 → 回传任务原子领取 → 失败退避/死信
 ```
 
 适合中低并发单节点场景；不宣称多节点高可用或法定财税申报完备。更多产品边界见本地 `docs/`。
@@ -422,7 +433,7 @@ GET /api/v1/metrics
 
 16 讲围绕工作台能力逐讲推进，每讲对应 FlowERP 暴露的工程问题、工作台增量，以及学生可迁移的证据。大纲合同与详细讲义在本地 `docs/`、`course/`。
 
-课程建设按国家级一流本科课程（金课）口径持续重构；正式申报资格与当批次要求须由学校依据教育部最新文件确认。仓库实现与文案不能替代学生目标达成，也不能伪造申报资格或教学成效。
+课程建设按国家级一流本科课程（金课）口径持续重构；课程目标、评价计算、两周期改进和证据边界见 [`国家级一流本科课程建设方案`](docs/courses/国家级一流本科课程建设方案.md)，当前申报缺口与责任边界见 [`申报级质量门`](docs/courses/国家级一流本科课程申报级质量门.md)。正式申报资格与当批次要求须由学校依据教育部最新文件确认。仓库实现与文案不能替代学生目标达成，也不能伪造申报资格或教学成效。
 
 ## 安全
 

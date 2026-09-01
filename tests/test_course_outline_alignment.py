@@ -186,6 +186,67 @@ class CourseOutlineAlignmentTests(unittest.TestCase):
         ):
             self.assertIn(marker, plan)
 
+    def test_outline_has_three_line_contract_and_measurable_outcomes(self) -> None:
+        outline = OUTLINE.read_text(encoding="utf-8")
+        for marker in (
+            "工作台驱动的 FlowERP 持续交付系统",
+            "课程学习成果",
+            "16 讲三线课程合同",
+            "FlowERP 产品状态",
+            "重复工程问题 → 工作台能力",
+            "学生最低证据",
+            "修订前后版本",
+        ):
+            self.assertIn(marker, outline)
+        for lesson in range(1, 17):
+            self.assertRegex(outline, rf"\| L{lesson:02d} \| CLO-")
+
+    def test_application_plan_has_outcome_assessment_and_authenticity_rules(self) -> None:
+        plan = (ROOT / "docs/courses/国家级一流本科课程建设方案.md").read_text(encoding="utf-8")
+        for marker in (
+            "课程目标—毕业要求—评价任务对齐",
+            "入课诊断与分层支持",
+            "通用分析量规",
+            "CLO 达成度计算与判定",
+            "两次提交与评价主体",
+            "AI 使用与作品真实性",
+            "评价工具校准",
+            "证据成熟度与质量门",
+            "两个教学周期的持续改进闭环",
+        ):
+            self.assertIn(marker, plan)
+
+    def test_application_quality_gate_does_not_overclaim_readiness(self) -> None:
+        gate_path = ROOT / "docs/courses/国家级一流本科课程申报级质量门.md"
+        self.assertTrue(gate_path.exists())
+        gate = gate_path.read_text(encoding="utf-8")
+        for marker in (
+            "不是申报资格证明",
+            "G0 资格与类型",
+            "G5 诚信、审查与安全",
+            "红：待校方确认",
+            "D 已设计",
+            "P 已试教",
+            "V 已验证",
+            "A 申报就绪",
+            "模拟学生",
+            "不得写成申报成效",
+        ):
+            self.assertIn(marker, gate)
+
+    def test_task_submission_contract_preserves_revision_and_authorship(self) -> None:
+        readme = (ROOT / "course/tasks/README.md").read_text(encoding="utf-8")
+        for marker in (
+            "每讲统一提交包",
+            "01-first-judgement.md",
+            "03-failure/",
+            "07-revision.md",
+            "09-authorship.md",
+            "通用四维量规",
+            "首次版本与二次版本",
+        ):
+            self.assertIn(marker, readme)
+
     def test_root_agents_enforces_course_mainline_and_application_integrity(self) -> None:
         agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
         for marker in (

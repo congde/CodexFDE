@@ -40,12 +40,14 @@ def _structured_log(record: dict) -> None:
 
 class App:
     def __init__(self, runtime_dir: str | Path = ".runtime", *,
-                 enable_legacy_workbench: bool = False) -> None:
+                 enable_legacy_workbench: bool = True) -> None:
         runtime = Path(runtime_dir)
         self.settings = load_settings(runtime)
         self.store = ERPStore(runtime / "flowerp.db", self.settings.database_busy_timeout_ms)
-        # The course V0 data model is physically isolated from the production
-        # ledger. It can never mutate /api/v1 balances or documents.
+        # The course delivery projection is required by the L14 mainline, but
+        # remains physically isolated from the production ledger. It can never
+        # mutate /api/v1 balances or documents. The full Harness cockpit still
+        # runs independently from harness_web/.
         self.erp = ERPService(ERPStore(runtime / "flowerp-course.db", self.settings.database_busy_timeout_ms))
         self.tasks = TaskStore(runtime / "workbench.db") if enable_legacy_workbench else None
         self.api = APIRouter(

@@ -8,6 +8,7 @@ from eval.harness import run_suite
 
 from .fs_provider import LocalFsProvider
 from .mcp_provider import create_mcp_provider
+from .plugin_runtime import PluginContract, PluginSupervisor
 from .project_runner import ProjectEvalRunner, ProjectExecutionRunner
 from .project_store import ProjectStore
 from .runtime_store import HarnessRuntimeStore
@@ -16,6 +17,28 @@ from .shell_provider import DenyShellProvider, LocalShellProvider
 
 
 ExecutionRunner = Callable[[dict], dict]
+
+
+PLUGIN_REQUIRES: dict[str, frozenset[str]] = {
+    "session.sqlite": frozenset(),
+    "persist.jsonl": frozenset({"sessions"}),
+    "workspace.local": frozenset(),
+    "fs.local": frozenset({"workspace"}),
+    "shell.local": frozenset({"workspace", "permission"}),
+    "shell.deny": frozenset({"workspace", "permission"}),
+    "tools.local": frozenset({"fs", "shell", "approval", "permission"}),
+    "llm.template": frozenset({"sessions"}),
+    "llm.codex": frozenset({"sessions"}),
+    "eval.command": frozenset({"workspace"}),
+    "eval.local": frozenset({"workspace"}),
+    "execution.codex": frozenset({"workspace", "permission"}),
+    "execution.verify": frozenset({"workspace", "permission"}),
+    "approval.named": frozenset({"sessions"}),
+    "permission.local": frozenset({"workspace"}),
+    "mcp.off": frozenset({"permission"}),
+    "mcp.http": frozenset({"permission"}),
+    "mcp.manifest": frozenset({"permission"}),
+}
 
 
 class HarnessProviders:
@@ -38,6 +61,57 @@ class HarnessProviders:
         self._shell_local = LocalShellProvider()
         self._shell_deny = DenyShellProvider()
         self._jsonl = JsonlSessionPersist(self.runtime_dir / "sessions_jsonl")
+        self._plugin_supervisor: PluginSupervisor | None = None
+
+    def attach_plugin_supervisor(self, supervisor: PluginSupervisor) -> None:
+        self._plugin_supervisor = supervisor
+
+    def plugin_contracts(self, tools: object) -> list[PluginContract]:
+        """Build executable Definition+Provider contracts for the built-in catalog."""
+        services: dict[str, object | Callable[[dict], object]] = {
+            "session.sqlite": self.runtime,
+            "persist.jsonl": self._jsonl,
+            "workspace.local": self.repository_root,
+            "fs.local": self._fs_local,
+            "shell.local": self._shell_local,
+            "shell.deny": self._shell_deny,
+            "tools.local": tools,
+            "llm.template": "template",
+            "llm.codex": "codex",
+            "eval.command": "command",
+            "eval.local": "local",
+            "execution.codex": "codex",
+            "execution.verify": "verify",
+            "approval.named": lambda config: {"provider": "named", **config},
+            "permission.local": lambda config: {"provider": "local", **config},
+            "mcp.off": lambda config: create_mcp_provider("off", config),
+            "mcp.http": lambda config: create_mcp_provider("http", config),
+            "mcp.manifest": lambda config: create_mcp_provider("manifest", config),
+        }
+        contracts: list[PluginContract] = []
+        for plugin in self.runtime.plugins():
+            plugin_id = str(plugin["id"])
+            if plugin_id not in services:
+                continue
+            configured = services[plugin_id]
+
+            def factory(_ctx, config, configured=configured):
+                return configured(dict(config)) if callable(configured) else configured
+
+            contracts.append(PluginContract(
+                id=plugin_id,
+                name=str(plugin["name"]),
+                provides=frozenset({str(plugin["seam"])}),
+                requires=PLUGIN_REQUIRES.get(plugin_id, frozenset()),
+                factory=factory,
+                config=dict(plugin.get("config") or {}),
+            ))
+        return contracts
+
+    def _runtime_service(self, seam: str, profile_id: str) -> object | None:
+        if self._plugin_supervisor is None:
+            return None
+        return self._plugin_supervisor.service(profile_id, seam)
 
     def _plugin_for_seam(self, seam: str, profile_id: str = "PROFILE-DEFAULT") -> dict:
         composition = self.runtime.composition(profile_id)
@@ -52,8 +126,11 @@ class HarnessProviders:
             if plugin["seam"] == seam and plugin["enabled"]:
                 return plugin
         return None
+
     def eval_runner_for_task(self, task: dict, profile_id: str = "PROFILE-DEFAULT") -> Callable[..., dict]:
-        provider = self._plugin_for_seam("eval", profile_id)["provider"]
+        provider = self._runtime_service("eval", profile_id)
+        if provider is None:
+            provider = self._plugin_for_seam("eval", profile_id)["provider"]
         if provider == "command":
             return self._eval_runner.for_task(task)
         if provider == "local":
@@ -81,7 +158,9 @@ class HarnessProviders:
         return self.repository_root
 
     def execution_runner_for_task(self, task: dict, profile_id: str = "PROFILE-DEFAULT") -> ExecutionRunner | None:
-        provider = self._plugin_for_seam("execution", profile_id)["provider"]
+        provider = self._runtime_service("execution", profile_id)
+        if provider is None:
+            provider = self._plugin_for_seam("execution", profile_id)["provider"]
         if provider == "codex":
             return self._execution_runner
         if provider == "verify":
@@ -93,15 +172,24 @@ class HarnessProviders:
         raise ValueError(f"未知 execution provider: {provider}")
 
     def llm_provider(self, profile_id: str = "PROFILE-DEFAULT") -> str:
-        return self._plugin_for_seam("llm", profile_id)["provider"]
+        provider = self._runtime_service("llm", profile_id)
+        if provider is not None:
+            return str(provider)
+        return str(self._plugin_for_seam("llm", profile_id)["provider"])
 
     def fs_provider(self, profile_id: str = "PROFILE-DEFAULT"):
+        service = self._runtime_service("fs", profile_id)
+        if service is not None:
+            return service
         provider = self._plugin_for_seam("fs", profile_id)["provider"]
         if provider == "local":
             return self._fs_local
         raise ValueError(f"未知 fs provider: {provider}")
 
     def shell_provider(self, profile_id: str = "PROFILE-DEFAULT"):
+        service = self._runtime_service("shell", profile_id)
+        if service is not None:
+            return service
         provider = self._plugin_for_seam("shell", profile_id)["provider"]
         if provider == "local":
             return self._shell_local
@@ -110,6 +198,14 @@ class HarnessProviders:
         raise ValueError(f"未知 shell provider: {provider}")
 
     def persist_jsonl(self, profile_id: str = "PROFILE-DEFAULT") -> JsonlSessionPersist | None:
+        if self._plugin_supervisor is not None:
+            try:
+                service = self._plugin_supervisor.service(profile_id, "persist")
+            except Exception:  # optional seam can be absent or pending
+                return None
+            if not isinstance(service, JsonlSessionPersist):
+                raise ValueError("persist seam 未提供 JsonlSessionPersist")
+            return service
         plugin = self._optional_plugin("persist", profile_id)
         if not plugin:
             return None
@@ -118,6 +214,11 @@ class HarnessProviders:
         return self._jsonl
 
     def mcp_provider(self, profile_id: str = "PROFILE-DEFAULT"):
+        if self._plugin_supervisor is not None:
+            try:
+                return self._plugin_supervisor.service(profile_id, "mcp")
+            except Exception:  # optional seam can be absent or pending
+                return create_mcp_provider("off")
         plugin = self._optional_plugin("mcp", profile_id)
         if not plugin:
             return create_mcp_provider("off")

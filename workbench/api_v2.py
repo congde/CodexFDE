@@ -40,6 +40,7 @@ from .task_store import TaskStore
 from .workflow import evaluate_task, prepare_task, run_task, start_task
 from .course_mainline import LESSONS, lesson_contract, validate_mainline
 from .course_release import CourseCandidateArtifacts
+from .delivery_view import DeliveryViewService
 
 
 @dataclass
@@ -91,6 +92,7 @@ class APIRouter:
         if enable_legacy_workbench and self.tasks is None:
             self.tasks = TaskStore(settings.runtime_dir / "workbench.db")
         self.evolutions = EvolutionStore(self.tasks.path) if self.tasks else None
+        self.delivery_views = DeliveryViewService(self.tasks, self.evolutions) if self.tasks else None
         self.automation = automation if enable_legacy_workbench else None
         if enable_legacy_workbench and self.automation is None:
             self.automation = DeliveryAutomation(
@@ -233,6 +235,16 @@ class APIRouter:
             principal.require("users.manage")
             if method == "GET":
                 return APIResponse(200, self.automation.capabilities())
+        if path == "/api/v1/delivery/views" and method == "GET":
+            principal.require("users.manage")
+            return APIResponse(200, self.delivery_views.list(self._integer(query, "limit", 100)))
+        if path.startswith("/api/v1/delivery/views/") and method == "GET":
+            principal.require("users.manage")
+            task_id = path.rsplit("/", 1)[-1]
+            try:
+                return APIResponse(200, self.delivery_views.get(task_id))
+            except KeyError as exc:
+                raise NotFound(f"任务不存在：{task_id}") from exc
         if path == "/api/v1/course/status" and method == "GET":
             principal.require("users.manage")
             return APIResponse(200, validate_mainline(self.repository_root))
@@ -556,9 +568,17 @@ class APIRouter:
                 ))
         if path == "/api/v1/channels/callbacks" and method == "GET":
             return APIResponse(200, {"items": self.channels.list_callbacks(principal, query.get("status", ""))})
+        if path == "/api/v1/channels/callbacks/claim" and method == "POST":
+            return APIResponse(200, {"items": self.channels.claim_callbacks(
+                principal, str(data.get("worker_id", "")), int(data.get("limit", 20)),
+                int(data.get("lease_seconds", 60)),
+            )})
         if path.startswith("/api/v1/channels/callbacks/") and method == "POST":
             parts = path.split("/"); task_id = parts[5]
-            if len(parts) == 7 and parts[6] == "complete": return APIResponse(200, self.channels.complete_callback(principal, task_id, bool(data.get("success")), str(data.get("error", ""))))
+            if len(parts) == 7 and parts[6] == "complete": return APIResponse(200, self.channels.complete_callback(
+                principal, task_id, bool(data.get("success")), str(data.get("error", "")),
+                str(data.get("worker_id", "")),
+            ))
 
         if path == "/api/v1/purchases/orders" and method == "GET": return APIResponse(200, {"items": self.purchasing.list_orders(principal, query.get("status", ""), query.get("supplier_id", ""), self._integer(query, "limit", 100), self._integer(query, "offset", 0))})
         if path == "/api/v1/purchases/orders" and method == "POST":
@@ -676,6 +696,7 @@ class APIRouter:
         if path == "/api/v1/reports/sales" and method == "GET": return APIResponse(200, {"items": self.reports.sales_summary(principal, query["since"], query["until"], query.get("group_by", "day"))})
         if path == "/api/v1/reports/inventory-valuation" and method == "GET": return APIResponse(200, {"items": self.reports.inventory_valuation(principal, query.get("site_id", ""))})
         if path == "/api/v1/reports/ar-aging" and method == "GET": return APIResponse(200, self.reports.ar_aging(principal, query.get("as_of")))
+        if path == "/api/v1/reports/ap-aging" and method == "GET": return APIResponse(200, self.reports.ap_aging(principal, query.get("as_of")))
         if path == "/api/v1/reports/reorder" and method == "GET": return APIResponse(200, {"items": self.reports.reorder_suggestions(principal, query.get("site_id", ""))})
         if path == "/api/v1/audit" and method == "GET": return APIResponse(200, {"items": self.audit.search(principal, query.get("entity_type", ""), query.get("entity_id", ""), query.get("actor_id", ""), query.get("action", ""), query.get("since", ""), query.get("until", ""), self._integer(query, "limit", 100), self._integer(query, "offset", 0))})
 

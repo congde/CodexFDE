@@ -51,7 +51,7 @@ def load_spec(path: str | Path = "FDE_SPEC.md") -> ParsedSpec:
 
 
 BUSINESS_REF_PATTERN = re.compile(
-    r"\b(SKU|CHANNEL|CHANNEL_ORDER|SALES_ORDER|ORDER|PURCHASE|PRODUCT|CUSTOMER|SUPPLIER|REQUIREMENT|PROJECT|SESSION):"
+    r"\b(SKU|CHANNEL|CHANNEL_ORDER|SALES_ORDER|ORDER|PURCHASE|PRODUCT|CUSTOMER|SUPPLIER|REQUIREMENT|PROJECT|SESSION|INITIATIVE):"
     r"([A-Za-z0-9][A-Za-z0-9._/-]{1,127})\b",
     flags=re.IGNORECASE,
 )
@@ -83,6 +83,11 @@ def normalize_business_refs(request: str, values: list[str] | None = None) -> li
 def _business_acceptance(request: str, business_refs: list[str]) -> list[str]:
     signal = f"{request} {' '.join(business_refs)}".upper()
     cases: list[str] = []
+    if any(token in signal for token in ("回传", "回调", "CALLBACK", "租约", "LEASE")):
+        cases.extend([
+            "给定同一渠道回传任务被两个 Worker 竞争，当任务被领取时，那么只有一个具名 Worker 获得有时限租约。",
+            "给定回传执行失败或租约过期，当任务重新入队时，那么保留失败证据并按有界退避重试，非租约持有者不得确认完成。",
+        ])
     if any(token in signal for token in ("库存", "缺货", "预占", "SKU:")):
         cases.extend([
             "给定需求量大于可用库存，当执行订单预占时，那么整单失败，`reserved` 与库存流水均不产生部分写入。",

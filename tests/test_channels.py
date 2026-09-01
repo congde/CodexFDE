@@ -1,14 +1,16 @@
 from __future__ import annotations
 
 import tempfile
+import threading
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from flowerp.channels import EcommerceChannelService
 from flowerp.identity import IdentityService, SYSTEM_PRINCIPAL
 from flowerp.inventory import InventoryService
 from flowerp.master_data import MasterDataService
-from flowerp.models import Conflict
+from flowerp.models import Conflict, ValidationError
 from flowerp.sales import SalesService
 from flowerp.store import ERPStore
 
@@ -128,6 +130,95 @@ class EcommerceChannelTests(unittest.TestCase):
         sales = self.sales.order(self.principal, imported["sales_document_id"])
         self.assertIn("世纪大道 1 号", sales["shipping_address"])
         self.assertEqual("address_change", self.channels.list_callbacks(self.principal, "pending")[0]["task_type"])
+
+    def test_callback_claim_is_exclusive_and_completion_requires_owner(self) -> None:
+        self.inventory.receive(self.principal, self.product["id"], "LOC-MAIN-STOCK", 5, "ec-callback-lease", unit_cost_cents=7000)
+        order = self.channels.ingest_orders(self.principal, self.shop["id"], [self.payload()])["items"][0]
+        imported = self.channels.review_and_import(self.principal, order["id"])
+        shipment = self.sales.create_shipment(
+            self.principal, imported["sales_document_id"], carrier="SF", tracking_number="SF-LEASE-1",
+        )
+        self.sales.post_shipment(self.principal, shipment["id"], "ec-callback-shipment")
+
+        barrier = threading.Barrier(2)
+
+        def compete(worker_id: str) -> tuple[str, list[dict]]:
+            barrier.wait()
+            return worker_id, self.channels.claim_callbacks(
+                self.principal, worker_id, limit=1, lease_seconds=60,
+            )
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            outcomes = dict(pool.map(compete, ("callback-worker-a", "callback-worker-b")))
+        winners = [(worker_id, items) for worker_id, items in outcomes.items() if items]
+        self.assertEqual(1, len(winners))
+        owner, first = winners[0]
+        other = "callback-worker-b" if owner == "callback-worker-a" else "callback-worker-a"
+        self.assertEqual([], outcomes[other])
+        self.assertEqual("processing", first[0]["status"])
+        self.assertEqual(owner, first[0]["processing_owner"])
+        self.assertEqual(1, first[0]["attempts"])
+        with self.assertRaises(Conflict):
+            self.channels.complete_callback(
+                self.principal, first[0]["id"], True, worker_id=other,
+            )
+        completed = self.channels.complete_callback(
+            self.principal, first[0]["id"], True, worker_id=owner,
+        )
+        self.assertEqual("succeeded", completed["status"])
+
+    def test_callback_failure_requires_evidence_and_uses_bounded_backoff(self) -> None:
+        order = self.channels.ingest_orders(self.principal, self.shop["id"], [self.payload()])["items"][0]
+        self.channels.cancel_order(self.principal, order["id"], "客户取消")
+        claimed = self.channels.claim_callbacks(self.principal, "callback-worker-a", limit=1)[0]
+
+        with self.assertRaises(ValidationError):
+            self.channels.complete_callback(
+                self.principal, claimed["id"], False, worker_id="callback-worker-a",
+            )
+        failed = self.channels.complete_callback(
+            self.principal, claimed["id"], False, "platform throttled", "callback-worker-a",
+        )
+        self.assertEqual("failed", failed["status"])
+        self.assertEqual("platform throttled", failed["last_error"])
+        self.assertGreater(failed["available_at"], failed["created_at"])
+        self.assertEqual([], self.channels.claim_callbacks(self.principal, "callback-worker-b", limit=1))
+        for attempt in range(2, 6):
+            self.store.execute(
+                "UPDATE channel_callback_tasks SET available_at='2000-01-01 00:00:00' WHERE id=?",
+                (claimed["id"],),
+            )
+            retry = self.channels.claim_callbacks(self.principal, "callback-worker-a", limit=1)[0]
+            self.assertEqual(attempt, retry["attempts"])
+            failed = self.channels.complete_callback(
+                self.principal, claimed["id"], False, f"platform failure {attempt}", "callback-worker-a",
+            )
+        self.assertEqual("dead_letter", failed["status"])
+        self.assertEqual([], self.channels.claim_callbacks(self.principal, "callback-worker-b", limit=1))
+
+    def test_expired_callback_lease_can_be_recovered_with_evidence(self) -> None:
+        order = self.channels.ingest_orders(self.principal, self.shop["id"], [self.payload()])["items"][0]
+        self.channels.cancel_order(self.principal, order["id"], "客户取消")
+        claimed = self.channels.claim_callbacks(self.principal, "callback-worker-a", limit=1)[0]
+        self.store.execute(
+            "UPDATE channel_callback_tasks SET lease_expires_at='2000-01-01 00:00:00' WHERE id=?",
+            (claimed["id"],),
+        )
+        recovered = self.channels.claim_callbacks(self.principal, "callback-worker-b", limit=1)[0]
+        self.assertEqual(claimed["id"], recovered["id"])
+        self.assertEqual("callback-worker-b", recovered["processing_owner"])
+        self.assertEqual(2, recovered["attempts"])
+        self.assertIn("lease expired", recovered["last_error"])
+        self.store.execute(
+            "UPDATE channel_callback_tasks SET attempts=5,lease_expires_at='2000-01-01 00:00:00' WHERE id=?",
+            (claimed["id"],),
+        )
+        self.assertEqual([], self.channels.claim_callbacks(self.principal, "callback-worker-c", limit=1))
+        terminal = self.channels.list_callbacks(self.principal, "dead_letter")[0]
+        self.assertEqual(claimed["id"], terminal["id"])
+        overview = self.channels.overview(self.principal)
+        self.assertEqual(0, overview["pending_callbacks"])
+        self.assertEqual(1, overview["dead_letter_callbacks"])
 
 
 if __name__ == "__main__":

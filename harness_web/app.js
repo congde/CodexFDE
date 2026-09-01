@@ -6,6 +6,7 @@ const WORKSPACE_KEY = "harness-workspace";
 const PROFILE_KEY = "harness-profile";
 const FILTER_KEY = "harness-session-filter";
 const TRAJ_ACTOR_KEY = "harness-traj-actor";
+const WORKBENCH_VIEW_KEY = "harness-workbench-view";
 const POLL_MS = 1400;
 const BUSY = new Set(["queued", "spec_ready", "executing", "evaluating", "rework"]);
 const TERMINAL = new Set(["completed", "failed", "dead_letter"]);
@@ -76,7 +77,7 @@ const RAIL = [
     label: "老板终审",
     match: ["review", "completed", "failed", "dead_letter"],
     title: "⑤ 老板终审",
-    summary: "员工停工；质检员可挑刺，只有老板能通过/驳回。",
+    summary: "自动化停工；质检职责可挑刺，只有老板能通过/驳回。",
     model_hint: "review 停自动改代码；等待老板终审，不要假装已 approve。",
     actions: ["质检挑刺", "老板通过/驳回", "复制会话再试"],
   },
@@ -87,7 +88,7 @@ const STEP_HELP = {
   spec_ready: { title: "规格已写好", blurb: "自然语言已整理成任务 Spec，下一步改代码。" },
   executing: { title: "正在改 FlowERP", blurb: "在 flowerp/tests 等写入范围内修改产品代码。" },
   evaluating: { title: "正在跑验收", blurb: "阻断级 Eval 检查库存/订单/采购等规则是否被破坏。" },
-  review: { title: "等老板终审", blurb: "员工已停工。质检员意见可见；请老板具名通过或驳回。" },
+  review: { title: "等老板终审", blurb: "自动化已停工。质检意见可见；请老板具名通过或驳回。" },
   rework: { title: "需要返工", blurb: "验收未过或被驳回，可再执行。" },
   completed: { title: "交付已接受", blurb: "你已具名接受这次 FlowERP 增量。" },
   failed: { title: "交付失败", blurb: "本轮未完成，可看过程记录或复制会话再试。" },
@@ -110,11 +111,16 @@ let state = {
   detailsOpen: false, sidebarCollapsed: false, detailsMode: "graph",
   taskStatusBySession: {},
   taskById: {},
+  deliveryViewByTask: {},
   employees: DEFAULT_EMPLOYEES.slice(),
   expandedRailId: null,
   railAutoOpened: false,
   sessionFilter: localStorage.getItem(FILTER_KEY) || "all",
   trajActorFilter: localStorage.getItem(TRAJ_ACTOR_KEY) || "all",
+  workbenchView: localStorage.getItem(WORKBENCH_VIEW_KEY) || "dashboard",
+  health: null, courseStatus: null, pluginRuntime: null, pluginEvents: [],
+  feedbackSummary: null, evolutionSummary: null, tasks: [], initiatives: [],
+  showAllMessages: false, teamExpanded: false,
 };
 
 function esc(v) {
@@ -138,7 +144,7 @@ function actor() {
     $("#actor").value = value;
   }
   if (value.startsWith("agent:")) {
-    toast("老板身份不能是 Agent 员工");
+    toast("老板身份不能使用自动化职责 actor");
     value = "boss";
     $("#actor").value = value;
   }
@@ -159,6 +165,25 @@ function employeeById(id) {
   return (state.employees || []).find((e) => e.id === id)
     || DEFAULT_EMPLOYEES.find((e) => e.id === id)
     || { id, display_name: id, duty: "" };
+}
+
+function llmProvider() {
+  return String((state.capabilities && state.capabilities.providers && state.capabilities.providers.llm) || "unknown");
+}
+
+function hasModelBackedAgentRuntime() {
+  const provider = llmProvider().toLowerCase();
+  return provider !== "template" && provider !== "off" && provider !== "unknown";
+}
+
+function roleRuntimeLabel() {
+  return hasModelBackedAgentRuntime() ? `Agent 执行 · ${llmProvider()}` : "职责投影 · template";
+}
+
+function roleRuntimeNote() {
+  return hasModelBackedAgentRuntime()
+    ? `当前 LLM Provider=${llmProvider()}；角色事件由模型执行，但仍不是独立登录账号。`
+    : "当前 LLM Provider=template；三个角色只是同一流水线的职责与事件标签，不是三个独立 Agent。";
 }
 
 function dutyForStatus(status) {
@@ -295,18 +320,18 @@ function syncRoleChips() {
 function syncComposerEnabled() {
   const ready = Boolean(currentProjectId());
   const blocked = state.sending || taskBusy() || (state.session && !sessionWritable());
-  $("#send").disabled = !ready || blocked;
+  $("#send").disabled = true;
   let hint = "先选择左侧工作区";
   if (ready && state.session && state.session.status === "paused") hint = "会话已暂停，在「更多」里点继续";
   else if (ready && state.session && state.session.status === "closed") hint = "会话已结束，请复制会话或新建";
   else if (ready && taskBusy()) {
     const emp = employeeById(dutyForStatus(state.task && state.task.status));
-    hint = `员工「${emp.display_name}」处理中…`;
+    hint = `职责「${emp.display_name}」处理中…`;
   } else if (ready && state.task && state.task.status === "review") {
-    hint = "员工已停工。请老板终审通过或驳回";
+    hint = "自动化已停工。请老板终审通过或驳回";
   } else if (ready && state.task && (state.task.status === "dead_letter" || state.task.status === "failed")) {
     hint = "自动化已停。可复制会话再试，并勾选「改代码」";
-  } else if (ready) hint = "Enter 发送 · Shift+Enter 换行";
+  } else if (ready) hint = "新需求必须先通过事项与决策门";
   $("#composer-hint").textContent = hint;
 
   const project = state.projects.find((p) => p.id === currentProjectId());
@@ -375,6 +400,7 @@ function renderMessages() {
   if (!state.selectedSessionId && !state.messages.length) {
     empty.hidden = false;
     stream.hidden = true;
+    $("#transcript-toolbar").hidden = true;
     stream.innerHTML = "";
     return;
   }
@@ -382,9 +408,32 @@ function renderMessages() {
   stream.hidden = false;
   if (!state.messages.length) {
     stream.innerHTML = `<div class="msg system"><div class="who">提示</div><div class="body">会话已就绪。描述要对 FlowERP 做的改动，然后点「开始交付」。</div></div>`;
+    $("#transcript-toolbar").hidden = true;
     return;
   }
-  stream.innerHTML = state.messages.map((m) => {
+  const lastPipelineIndex = state.messages.reduce((found, message, index) =>
+    (message.kind === "pipeline/stage" ? index : found), -1);
+  const seenRequests = new Set();
+  const summaryMessages = state.messages.filter((message, index) => {
+    const kind = message.kind || "";
+    if (message.role === "user" || kind === "user/message") {
+      const key = messageBody(message).trim();
+      if (seenRequests.has(key)) return false;
+      seenRequests.add(key);
+      return true;
+    }
+    if (index === lastPipelineIndex) return true;
+    return kind === "agent/critique" || kind === "agent/stopped"
+      || kind === "assistant/message" || kind === "assistant/chunk";
+  });
+  const visibleMessages = state.showAllMessages ? state.messages : summaryMessages;
+  const toolbar = $("#transcript-toolbar");
+  toolbar.hidden = false;
+  $("#message-count").textContent = state.showAllMessages
+    ? `${state.messages.length} 条全部记录`
+    : `${summaryMessages.length} 条关键记录 · 已隐藏 ${Math.max(0, state.messages.length - summaryMessages.length)} 条技术噪声`;
+  $("#toggle-message-density").textContent = state.showAllMessages ? "只看交付摘要" : "显示全部技术记录";
+  stream.innerHTML = visibleMessages.map((m) => {
     const role = m.role || "system";
     const kind = m.kind || "";
     if (kind === "pipeline/stage") {
@@ -416,7 +465,7 @@ function renderMessages() {
     </article>`;
   }).join("");
   const scroller = document.querySelector("[data-conversation-scroll]");
-  scroller.scrollTop = scroller.scrollHeight;
+  if (state.sending || !state.selectedSessionId) scroller.scrollTop = scroller.scrollHeight;
 }
 
 function sessionTaskStatus(session) {
@@ -487,6 +536,55 @@ function ingestTasks(items) {
   state.taskStatusBySession = map;
 }
 
+function setWorkbenchView(view, target = "") {
+  const normalized = ["delivery", "decision"].includes(view) ? view : "dashboard";
+  state.workbenchView = normalized;
+  localStorage.setItem(WORKBENCH_VIEW_KEY, normalized);
+  $("#dashboard-view").hidden = normalized !== "dashboard";
+  $("#decision-view").hidden = normalized !== "decision";
+  $("#delivery-view").hidden = normalized !== "delivery";
+  if (normalized === "dashboard" && state.detailsOpen) closeDetails();
+  document.querySelectorAll("[data-workbench-view]").forEach((button) => {
+    const sameView = button.dataset.workbenchView === normalized;
+    const sameTarget = normalized !== "dashboard" || (target
+      ? button.dataset.target === target
+      : button.dataset.target === "dashboard-top");
+    button.classList.toggle("active", sameView && sameTarget);
+  });
+  if (normalized === "dashboard" && target) {
+    requestAnimationFrame(() => document.getElementById(target)?.scrollIntoView({ behavior: "smooth", block: "start" }));
+  }
+}
+
+function openDecisionWithSignal(signal = "") {
+  const value = String(signal || "").trim();
+  if (value) {
+    $("#initiative-title").value = shortTitle(value);
+    $("#initiative-signal").value = value;
+  }
+  setWorkbenchView("decision");
+  (value ? $("#initiative-source") : $("#initiative-title")).focus();
+}
+
+function deliveryViewsByRecency() {
+  return Object.values(state.deliveryViewByTask || {}).sort((left, right) =>
+    String((right.task || {}).updated_at || "").localeCompare(String((left.task || {}).updated_at || ""))
+  );
+}
+
+function latestEvalView() {
+  return deliveryViewsByRecency().find((view) => view.eval && view.eval.available) || null;
+}
+
+function ingestDeliveryViews(items) {
+  const byTask = {};
+  (items || []).forEach((view) => {
+    if (view && view.task_id) byTask[view.task_id] = view;
+  });
+  state.deliveryViewByTask = byTask;
+  ingestTasks((items || []).map((view) => view.task).filter(Boolean));
+}
+
 function sessionDotClass(session) {
   const st = sessionTaskStatus(session);
   if (!st) return session.status === "paused" ? "busy" : "";
@@ -519,7 +617,10 @@ function renderSessions() {
     </button>`;
   }).join("");
   list.querySelectorAll(".session-item").forEach((btn) => {
-    btn.addEventListener("click", () => selectSession(btn.dataset.id));
+    btn.addEventListener("click", () => {
+      setWorkbenchView("delivery");
+      selectSession(btn.dataset.id);
+    });
   });
 }
 
@@ -602,7 +703,7 @@ function renderRailPanel(step) {
       <div>
         <h4>本步做什么</h4>
         <ul>${step.actions.map((a) => `<li>${esc(a)}</li>`).join("")}</ul>
-        <p class="muted">值班员工：${esc(duty.display_name)}（${esc(dutyId)}）</p>
+        <p class="muted">当前职责：${esc(duty.display_name)}（${esc(dutyId)}）</p>
       </div>
       <div>
         <h4>给大模型的提示</h4>
@@ -647,7 +748,7 @@ function renderRailPanel(step) {
       else if (act === "reject") quickReview("reject");
       else if (act === "fork") forkSession();
       else if (act === "export") exportSession();
-      else if (act === "new") createSession();
+      else if (act === "new") openDecisionWithSignal();
     });
   });
 }
@@ -664,10 +765,7 @@ function renderRail() {
   rail.hidden = false;
   const idx = railIndex(status);
 
-  if (!state.railAutoOpened && idx >= 0) {
-    state.expandedRailId = RAIL[idx].id;
-    state.railAutoOpened = true;
-  }
+  if (!state.railAutoOpened) state.railAutoOpened = true;
 
   $("#rail-steps").innerHTML = RAIL.map((step, i) => {
     const cls = stageStateClass(step, i, idx, status);
@@ -712,11 +810,10 @@ function renderCollabBar() {
   bar.hidden = false;
   bar.innerHTML = `
     <div class="collab-main">
-      <span class="collab-mode">OPC · 一人公司</span>
-      <span>老板 <b>${esc(me)}</b> <small>${activity.boss} 条</small></span>
-      <span>本轮值班 <b>${esc(duty.display_name)}</b></span>
+      <span><span class="collab-mode">${esc(roleRuntimeLabel())}</span> 当前职责 <b>${esc(duty.display_name)}</b> · 终审人 <b>${esc(me)}</b></span>
+      <span class="collab-actions"><button type="button" id="toggle-team" class="linkish">${state.teamExpanded ? "收起分工" : "查看分工与事件"}</button></span>
     </div>
-    <div class="opc-roster">
+    <div class="opc-roster" ${state.teamExpanded ? "" : "hidden"}>
       ${employees.map((emp) => {
         const n = activity[emp.id] || 0;
         const on = emp.id === dutyId;
@@ -730,9 +827,13 @@ function renderCollabBar() {
         <small>${esc(me)} · ${activity.boss} 事件</small>
       </button>
     </div>
-    <p class="collab-warn" style="background:var(--ds-50);color:var(--ds-700);border:0">
-      点员工卡片可过滤「过程」账本。质检员只能挑刺；只有老板能终审。
+    <p class="collab-warn" ${state.teamExpanded ? "" : "hidden"} style="background:var(--ds-50);color:var(--ds-700);border:0">
+      ${esc(roleRuntimeNote())} 点职责卡片可过滤「过程」账本；只有老板能终审。
     </p>`;
+  $("#toggle-team").addEventListener("click", () => {
+    state.teamExpanded = !state.teamExpanded;
+    renderCollabBar();
+  });
   bar.querySelectorAll("[data-traj-actor]").forEach((btn) => {
     btn.addEventListener("click", () => {
       state.trajActorFilter = btn.dataset.trajActor || "all";
@@ -758,7 +859,7 @@ function renderRecoveryBanner() {
   banner.innerHTML = `
     <strong>${dead ? "任务进入死信，不能自动继续" : "本轮交付失败"}</strong>
     <div>${dead
-      ? "Agent 员工已无法自动推进。请老板复盘后复制会话再试。"
+      ? "自动化流水线已无法继续推进。请老板复盘后复制会话再试。"
       : "可查看过程账本定位失败点，再复制会话或新建交付。"}</div>
     ${task.error ? `<div class="recovery-error">${esc(task.error)}</div>` : ""}
     <div class="actions">
@@ -793,8 +894,8 @@ function renderReviewBanner() {
   const critique = latestCritique();
   banner.hidden = false;
   banner.innerHTML = `
-    <strong>员工已停工，请老板终审这次 FlowERP 交付</strong>
-    <div>质检员已完成挑刺；通过后记为完成，驳回后工程师返工。Agent 不能代替你点通过。</div>
+    <strong>自动化已停工，请老板终审这次 FlowERP 交付</strong>
+    <div>质检职责已完成检查；通过后记为完成，驳回后返回实现职责。自动化不能代替你点通过。</div>
     ${critique ? `<div class="banner-warn">质检建议：<b>${esc(critique.suggested_decision || "—")}</b><br>${esc(String(critique.note || "").slice(0, 280))}</div>` : ""}
     <div class="actions">
       <button type="button" class="send" id="banner-approve">老板通过</button>
@@ -806,45 +907,63 @@ function renderReviewBanner() {
   $("#banner-open-details").addEventListener("click", openGraphDetails);
 }
 
-async function quickReview(decision) {
+function quickReview(decision) {
   const task = state.task;
   if (!task) return;
   if ((actor() || "").startsWith("agent:")) {
-    return toast("Agent 员工不能终审，请用老板身份");
+    return toast("自动化职责 actor 不能终审，请用老板身份");
   }
-  const note = decision === "approve"
-    ? window.prompt("通过理由（必填）", "阻断级 Eval 通过，接受本次 FlowERP 增量")
-    : window.prompt("驳回理由（必填）", "需要返工后再验收");
-  if (!note || !note.trim()) return toast("必须填写理由");
+  $("#review-decision").value = decision;
+  $("#review-dialog-title").textContent = decision === "approve" ? "通过本次交付" : "驳回并要求返工";
+  $("#review-note").value = decision === "approve"
+    ? "阻断级 Eval 通过，证据完整，接受本次 FlowERP 增量"
+    : "当前证据不足或验收未通过，需要最小范围返工后重新验收";
+  $("#review-confirm").textContent = decision === "approve" ? "确认通过" : "确认驳回";
+  $("#review-dialog").showModal();
+  $("#review-note").focus();
+}
+
+async function submitReview() {
+  const task = state.task;
+  const decision = $("#review-decision").value;
+  const note = ($("#review-note").value || "").trim();
+  if (!task || !["approve", "reject"].includes(decision)) return;
+  if (!note) return toast("必须填写判断依据");
+  $("#review-confirm").disabled = true;
   try {
     await api(`/api/v1/tasks/${encodeURIComponent(task.id)}/review`, {
       method: "POST",
       headers: headers("review"),
-      body: JSON.stringify({ decision, note: note.trim() }),
+      body: JSON.stringify({ decision, note }),
     });
+    $("#review-dialog").close();
     toast(decision === "approve" ? "老板已通过" : "老板已驳回，进入返工");
     await refreshSelected();
     await loadShell();
   } catch (err) {
     toast(err.message);
+  } finally {
+    $("#review-confirm").disabled = false;
   }
 }
 
 function renderHeader() {
   const session = state.session;
   const task = state.task;
+  const deliveryView = task && state.deliveryViewByTask[task.id];
   const project = state.projects.find((p) => p.id === (session && session.project_id))
     || state.projects.find((p) => p.id === currentProjectId());
   $("#chat-title").textContent = session ? shortTitle(session.title) : "新交付";
   if (!session) {
     $("#chat-sub").textContent = "提一个 FlowERP 小需求，工作台改代码并跑验收";
   } else {
-    const progress = stepHelp(currentStatus() || "queued").title;
-    $("#chat-sub").textContent = `${(project && project.name) || "工作区"} · ${progress}`;
+    const progress = deliveryView ? deliveryView.status.title : stepHelp(currentStatus() || "queued").title;
+    const next = deliveryView ? ` · 下一步：${deliveryView.status.next_action}` : "";
+    $("#chat-sub").textContent = `${(project && project.name) || "工作区"} · ${progress}${next}`;
   }
   const badge = $("#task-badge");
   const raw = task ? task.status : (session ? session.status : "idle");
-  badge.textContent = task ? stepHelp(raw).title : statusLabel(raw);
+  badge.textContent = deliveryView ? deliveryView.status.title : (task ? stepHelp(raw).title : statusLabel(raw));
   badge.className = `pill ${raw || ""}`;
   renderRail();
   renderCollabBar();
@@ -925,11 +1044,11 @@ function renderGraphDetails() {
   const employees = state.employees.length ? state.employees : DEFAULT_EMPLOYEES;
 
   $("#details-title").textContent = "交付进度";
-  $("#details-kind").textContent = "OPC 流水线 · 员工=Agent";
+  $("#details-kind").textContent = roleRuntimeLabel();
   $("#details-body").innerHTML = `
     <div class="explain-card">
-      <p class="explain-kicker">OPC 班组</p>
-      <p>老板调度 Agent 员工交付 FlowERP。当前值班：<b>${esc(duty.display_name)}</b></p>
+      <p class="explain-kicker">流水线职责</p>
+      <p>${esc(roleRuntimeNote())} 当前职责：<b>${esc(duty.display_name)}</b></p>
       <ul class="opc-detail-list">
         ${employees.map((emp) => `<li><b>${esc(emp.display_name)}</b> ${esc(emp.id)} · ${activity[emp.id] || 0} 事件</li>`).join("")}
       </ul>
@@ -1022,7 +1141,7 @@ function renderReview() {
     </form>`;
     $("#review-form").addEventListener("submit", async (event) => {
       event.preventDefault();
-      if ((actor() || "").startsWith("agent:")) return toast("Agent 不能终审");
+      if ((actor() || "").startsWith("agent:")) return toast("自动化职责 actor 不能终审");
       const data = new FormData(event.target);
       try {
         await api(`/api/v1/tasks/${encodeURIComponent(task.id)}/review`, {
@@ -1153,9 +1272,12 @@ async function refreshSelected() {
   state.graph = graph;
   state.agent = agent;
   state.events = session.events || [];
-  state.task = session.task_id
-    ? await api(`/api/v1/tasks/${encodeURIComponent(session.task_id)}`)
-    : null;
+  state.task = null;
+  if (session.task_id) {
+    const view = await api(`/api/v1/delivery/views/${encodeURIComponent(session.task_id)}`);
+    state.deliveryViewByTask[session.task_id] = view;
+    state.task = view.task;
+  }
   if (state.task) state.taskStatusBySession[sessionId] = state.task.status;
 
   // Keep inbox filters useful when task lands in review / dead letter.
@@ -1174,7 +1296,7 @@ async function refreshSelected() {
   renderReview();
   if (state.detailsOpen && state.detailsMode === "graph") renderGraphDetails();
 
-  if (state.task && state.task.status === "review" && !state.detailsOpen) {
+  if (state.workbenchView === "delivery" && state.task && state.task.status === "review" && !state.detailsOpen) {
     openGraphDetails();
   }
   maybePoll();
@@ -1184,11 +1306,13 @@ async function selectSession(sessionId) {
   state.selectedSessionId = sessionId;
   state.expandedRailId = null;
   state.railAutoOpened = false;
+  state.showAllMessages = false;
+  state.teamExpanded = false;
   $("#more-menu").hidden = true;
   renderSessions();
   try {
     await refreshSelected();
-    if (state.task) openGraphDetails();
+    if (state.task && state.workbenchView === "delivery") openGraphDetails();
   } catch (err) {
     toast(err.message);
   }
@@ -1201,6 +1325,7 @@ async function createSession() {
     return toast("请先选择工作区");
   }
   try {
+    setWorkbenchView("delivery");
     const session = await api("/api/v1/sessions", {
       method: "POST",
       headers: headers("session"),
@@ -1215,8 +1340,10 @@ async function createSession() {
     await selectSession(session.id);
     setView("chat");
     $("#prompt").focus();
+    return session;
   } catch (err) {
     toast(err.message);
+    return null;
   }
 }
 
@@ -1368,8 +1495,371 @@ async function exportSession() {
   }
 }
 
+function workbenchStatusCounts() {
+  const counts = { active: 0, review: 0, blocked: 0, completed: 0 };
+  state.sessions.forEach((session) => {
+    const status = sessionTaskStatus(session) || session.status;
+    if (BUSY.has(status) || status === "active" || status === "paused") counts.active += 1;
+    if (status === "review") counts.review += 1;
+    if (status === "failed" || status === "dead_letter" || status === "rework") counts.blocked += 1;
+    if (status === "completed") counts.completed += 1;
+  });
+  return counts;
+}
+
+function renderDashboard() {
+  const now = new Date();
+  $("#dashboard-date").textContent = new Intl.DateTimeFormat("zh-CN", {
+    month: "long", day: "numeric", weekday: "long",
+  }).format(now);
+  const project = state.projects.find((item) => item.id === currentProjectId()) || state.projects[0];
+  $("#dashboard-project").textContent = project ? project.name : "尚未选择工作区";
+  const course = state.courseStatus || {};
+  $("#dashboard-course").textContent = course.course_ready
+    ? `L01–L${String(course.lesson_count || 16).padStart(2, "0")} 跟跑就绪`
+    : (course.contract_valid ? "课程合同有效 · 基线待补" : "课程合同待修复");
+
+  const counts = workbenchStatusCounts();
+  $("#metric-active").textContent = counts.active;
+  $("#metric-review").textContent = counts.review;
+  $("#metric-blocked").textContent = counts.blocked;
+  $("#metric-completed").textContent = counts.completed;
+
+  const actionable = state.sessions.find((session) => sessionTaskStatus(session) === "review")
+    || state.sessions.find((session) => ["failed", "dead_letter", "rework"].includes(sessionTaskStatus(session)));
+  const attention = $("#attention-panel");
+  if (actionable) {
+    const actionStatus = sessionTaskStatus(actionable);
+    const needsReview = actionStatus === "review";
+    attention.className = `attention-panel ${needsReview ? "warn" : "bad"}`;
+    attention.innerHTML = `
+      <span class="attention-icon">${needsReview ? "!" : "×"}</span>
+      <span class="attention-copy"><b>${needsReview ? "有交付等待你的终审" : "有失败需要人工处理"}</b><span>${esc(shortTitle(actionable.title))} · ${esc(statusLabel(actionStatus))}</span></span>
+      <button type="button" class="${needsReview ? "send" : "ghost-btn"}" id="attention-open">${needsReview ? "现在处理" : "查看失败证据"}</button>`;
+    $("#attention-open").addEventListener("click", async () => {
+      setWorkbenchView("delivery");
+      await selectSession(actionable.id);
+    });
+  } else {
+    attention.className = "attention-panel";
+    attention.innerHTML = `<span class="attention-icon">✓</span><span class="attention-copy"><b>目前没有需要你处理的阻断项</b><span>可以记录一个新的业务信号，先判断是否值得开发。</span></span><button type="button" class="ghost-btn" id="attention-new">新建事项</button>`;
+    $("#attention-new").addEventListener("click", () => setWorkbenchView("decision"));
+  }
+
+  const recent = state.sessions.slice(0, 5);
+  $("#today-task-list").innerHTML = recent.length ? recent.map((session) => {
+    const status = sessionTaskStatus(session) || session.status || "idle";
+    return `<button type="button" class="today-task" data-dashboard-session="${esc(session.id)}">
+      <span class="task-dot ${sessionDotClass(session)}"></span>
+      <span><b>${esc(shortTitle(session.title))}</b><small>${esc(statusLabel(status))} · ${esc((session.updated_at || "").slice(0, 16))}</small></span>
+      <span class="task-arrow">→</span>
+    </button>`;
+  }).join("") : `<div class="empty-dashboard">还没有交付记录。先在上方写下第一个 FlowERP 小需求。</div>`;
+  document.querySelectorAll("[data-dashboard-session]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      setWorkbenchView("delivery");
+      await selectSession(button.dataset.dashboardSession);
+    });
+  });
+
+  const toolIds = new Set((state.tools || []).map((tool) => tool.id));
+  const runtime = state.pluginRuntime || {};
+  const activePlugins = runtime.active_plugins || [];
+  const runtimeReady = activePlugins.length > 0 && !(runtime.plugins || []).some((item) => item.error);
+  const platformReady = Boolean(state.health);
+  const deliveryViews = deliveryViewsByRecency();
+  const specEvidenceCount = deliveryViews.filter((view) => view.spec && view.spec.available).length;
+  const evalEvidenceCount = deliveryViews.filter((view) => view.eval && view.eval.available).length;
+  const harnessEvidenceCount = deliveryViews.filter((view) => view.eval && view.eval.report_path && view.eval.report_sha256).length;
+  const loopEvidence = Boolean(state.agent && Number(state.agent.turns_completed || 0) > 0);
+  const graphEvidence = Boolean(state.graph && Array.isArray(state.graph.nodes) && state.graph.nodes.length);
+  const capabilities = [
+    ["Spec", toolIds.has("spec.read"), specEvidenceCount > 0, `${specEvidenceCount} 个 Task`],
+    ["Eval", toolIds.has("eval.blocking"), evalEvidenceCount > 0, `${evalEvidenceCount} 份结果`],
+    ["Harness", runtimeReady, harnessEvidenceCount > 0, `${harnessEvidenceCount} 份可校验报告`],
+    ["Loop", platformReady, loopEvidence, loopEvidence ? `${state.agent.turns_completed} 轮轨迹` : "当前无运行轨迹"],
+    ["Graph", platformReady, graphEvidence, graphEvidence ? "已读取当前任务图" : "选择任务后验证"],
+    ["API", platformReady, platformReady, "健康接口已响应"],
+    ["Web", true, true, "当前页面已加载"],
+  ];
+  $("#capability-map").innerHTML = capabilities.map(([name, available, evidenced, detail]) => {
+    const evidenceState = evidenced ? "ready" : (available ? "installed" : "attention");
+    const evidenceText = evidenced ? `已验证 · ${detail}` : (available ? `可用未使用 · ${detail}` : "未配置");
+    return `<div class="capability-node ${evidenceState}"><b>${name}</b><small>${esc(evidenceText)}</small></div>`;
+  }).join("");
+  const runtimeChip = $("#runtime-summary");
+  runtimeChip.textContent = runtimeReady ? `${activePlugins.length} 个组件已加载 · 非交付结论` : "运行时未就绪";
+  runtimeChip.className = `status-chip ${runtimeReady ? "good" : "warn"}`;
+
+  const latestView = latestEvalView();
+  const latestEval = latestView ? latestView.eval : null;
+  const qualityReady = Boolean(latestView && latestEval.decision === "pass"
+    && latestEval.blocking_failed === 0 && latestView.integrity && latestView.integrity.truthful);
+  $("#quality-dot").className = `live-dot ${qualityReady ? "good" : "bad"}`;
+  $("#quality-summary").innerHTML = latestView ? `
+    <div class="quality-line"><span>Task</span><b>${esc(latestView.task_id)}</b></div>
+    <div class="quality-line"><span>Blocking</span><b>${latestEval.blocking_passed} 通过 / ${latestEval.blocking_failed} 失败</b></div>
+    <div class="quality-line"><span>结论</span><b>${esc(latestEval.decision || "未判定")} · ${latestView.integrity.truthful ? "证据一致" : "证据需核对"}</b></div>
+    <div class="quality-line"><span>报告</span><b>${esc(latestEval.report_path || "未保存报告")}</b></div>
+    <div class="quality-line"><span>SHA-256</span><b>${esc((latestEval.report_sha256 || "未提供").slice(0, 12))}${latestEval.report_sha256 ? "…" : ""}</b></div>`
+    : `<div class="empty-dashboard">尚无真实 Eval 报告。工具已安装不等于质量门已经通过。</div>`;
+
+  const rules = [
+    ["可用库存不得为负，预占必须原子化", ["stock_never_negative"]],
+    ["同一个入库幂等键只能生效一次", ["receiving_is_idempotent"]],
+    ["订单状态只能按状态机迁移，取消释放预占", ["illegal_transition_is_blocked", "cancellation_releases_reservation"]],
+    ["采购补货必须人工审批后才能入库", ["purchase_requires_approval"]],
+    ["任务、Eval 与反馈可追溯，失败不能伪装成功", ["delivery_evidence_and_review_controls"]],
+  ];
+  const latestCases = new Map(((latestEval && latestEval.cases) || []).map((item) => [item.name, item]));
+  let verifiedRuleCount = 0;
+  $("#flow-rules").innerHTML = rules.map(([rule, caseNames]) => {
+    const cases = caseNames.map((name) => latestCases.get(name)).filter(Boolean);
+    const failed = cases.some((item) => !item.passed);
+    const verified = cases.length === caseNames.length && cases.every((item) => item.passed);
+    if (verified) verifiedRuleCount += 1;
+    const stateClass = failed ? "failed" : (verified ? "" : "unverified");
+    const mark = failed ? "×" : (verified ? "✓" : "·");
+    const label = failed ? "最近验证失败" : (verified ? "最近验证通过" : "本次无验证证据");
+    return `<div class="rule-item ${stateClass}"><span>${mark}</span><div>${esc(rule)}<small>${esc(label)}</small></div></div>`;
+  }).join("");
+  $("#flow-rules-status").textContent = latestEval ? `${verifiedRuleCount} / ${rules.length} 最近验证` : "等待 Eval";
+  $("#flow-rules-status").className = `status-chip ${verifiedRuleCount === rules.length ? "good" : "warn"}`;
+
+  const feedback = state.feedbackSummary || {};
+  const evolution = state.evolutionSummary || {};
+  $("#evolution-count").textContent = `${evolution.total || 0} 条`;
+  $("#feedback-summary").innerHTML = `
+    <div class="evolution-row"><span>待复核反馈</span><b>${feedback.pending_review || 0}</b></div>
+    <div class="evolution-row"><span>已接受反馈</span><b>${feedback.accepted || 0}</b></div>
+    <div class="evolution-row"><span>资产已变更</span><b>${evolution.asset_changed || 0}</b></div>
+    <div class="evolution-row"><span>迁移验证完成</span><b>${evolution.verified || 0}</b></div>`;
+
+  const plugins = runtime.plugins || state.plugins || [];
+  $("#plugin-summary").innerHTML = plugins.length ? plugins.slice(0, 8).map((plugin) => {
+    const on = plugin.state === "active" || plugin.enabled;
+    return `<span class="plugin-pill ${on ? "on" : ""}">${esc(plugin.name || plugin.id)} · ${on ? "active" : "off"}</span>`;
+  }).join("") : `<span class="muted">暂无插件运行证据</span>`;
+
+  $("#recent-evidence").innerHTML = deliveryViews.slice(0, 5).map((view) => {
+    const task = view.task || {};
+    const report = view.eval && view.eval.report_path
+      ? view.eval.report_path
+      : (view.spec && view.spec.available ? "只有 Spec，尚无 Eval 报告" : "尚未生成可核对证据");
+    return `<div class="evidence-item"><span class="task-dot ${TERMINAL.has(task.status) ? (task.status === "completed" ? "done" : "bad") : "busy"}"></span>
+      <span><b>${esc(task.requirement_id || task.id || "交付证据")}</b><small>${esc(report)}</small></span>
+      <small>${esc(statusLabel(task.status || "idle"))}</small></div>`;
+  }).join("") || `<div class="empty-dashboard">证据会在首次交付后出现在这里。</div>`;
+}
+
+function linesFrom(selector, separator = /\r?\n/) {
+  return ($(selector).value || "").split(separator).map((value) => value.trim()).filter(Boolean);
+}
+
+async function createInitiative() {
+  const projectId = currentProjectId();
+  if (!projectId) {
+    $("#workspace-dialog").showModal();
+    return;
+  }
+  try {
+    const created = await api("/api/v1/initiatives", {
+      method: "POST",
+      headers: headers("initiative"),
+      body: JSON.stringify({
+        title: ($("#initiative-title").value || "").trim(),
+        raw_signal: ($("#initiative-signal").value || "").trim(),
+        source: ($("#initiative-source").value || "").trim(),
+        problem_statement: ($("#initiative-problem").value || "").trim(),
+        goal: ($("#initiative-goal").value || "").trim(),
+        acceptance: linesFrom("#initiative-acceptance"),
+        evidence: linesFrom("#initiative-evidence"),
+        assumptions: linesFrom("#initiative-assumptions"),
+        affected_areas: linesFrom("#initiative-areas", /[,，\r\n]+/),
+        reversibility: $("#initiative-reversibility").value,
+        non_goals: linesFrom("#initiative-non-goals"),
+        constraints: linesFrom("#initiative-constraints"),
+        project_id: projectId,
+        owner: actor(),
+      }),
+    });
+    state.initiatives.unshift(created);
+    renderInitiatives();
+    ["title", "signal", "source", "problem", "goal", "acceptance", "evidence", "assumptions", "areas", "non-goals", "constraints"]
+      .forEach((field) => { $("#initiative-" + field).value = ""; });
+    toast(`事项已保存，风险通道：${created.risk_lane}`);
+  } catch (err) {
+    toast(err.message);
+  }
+}
+
+async function reviseInitiative(id) {
+  const item = state.initiatives.find((candidate) => candidate.id === id);
+  if (!item) return;
+  const value = (name) => document.querySelector(`[data-initiative-revise-${name}="${id}"]`).value;
+  try {
+    const revised = await api(`/api/v1/initiatives/${id}/revise`, {
+      method: "POST",
+      headers: headers("initiative-revise"),
+      body: JSON.stringify({
+        expected_version: item.version,
+        problem_statement: value("problem").trim(),
+        goal: value("goal").trim(),
+        evidence: value("evidence").split(/\r?\n/).map((entry) => entry.trim()).filter(Boolean),
+        acceptance: value("acceptance").split(/\r?\n/).map((entry) => entry.trim()).filter(Boolean),
+        affected_areas: value("areas").split(/[,，\r\n]+/).map((entry) => entry.trim()).filter(Boolean),
+        reversibility: value("reversibility"),
+      }),
+    });
+    state.initiatives = state.initiatives.map((candidate) => candidate.id === id ? revised : candidate);
+    renderInitiatives();
+    toast(`修订已保存，当前风险通道：${revised.risk_lane}`);
+  } catch (err) {
+    toast(err.message);
+  }
+}
+
+async function decideInitiative(id, decision) {
+  const item = state.initiatives.find((candidate) => candidate.id === id);
+  if (!item) return;
+  const rationale = document.querySelector(`[data-initiative-rationale="${id}"]`).value.trim();
+  if (!rationale) return toast("请先写下决定依据；工作台不会替你编造理由");
+  try {
+    const decided = await api(`/api/v1/initiatives/${id}/decision`, {
+      method: "POST",
+      headers: headers("initiative-decision"),
+      body: JSON.stringify({
+        decision, rationale, expected_version: item.version,
+        reviewer: document.querySelector(`[data-initiative-reviewer="${id}"]`).value.trim(),
+        review_trigger: document.querySelector(`[data-initiative-trigger="${id}"]`).value.trim(),
+        success_metric: document.querySelector(`[data-initiative-metric="${id}"]`).value.trim(),
+        stop_condition: document.querySelector(`[data-initiative-stop="${id}"]`).value.trim(),
+      }),
+    });
+    state.initiatives = state.initiatives.map((candidate) => candidate.id === id ? decided : candidate);
+    renderInitiatives();
+    toast(`已记录决定：${decision}`);
+  } catch (err) {
+    toast(err.message);
+  }
+}
+
+async function promoteInitiative(id) {
+  const item = state.initiatives.find((candidate) => candidate.id === id);
+  if (!item) return;
+  try {
+    const promoted = await api(`/api/v1/initiatives/${id}/delivery`, {
+      method: "POST",
+      headers: headers("initiative-delivery"),
+      body: JSON.stringify({
+        expected_version: item.version,
+        execute_code: $("#execute-code").checked,
+        write_scope: linesFrom("#write-scope", /[,，\r\n]+/),
+        profile_id: currentProfileId(),
+      }),
+    });
+    toast("已生成交付合同并进入 Harness");
+    await loadShell();
+    setWorkbenchView("delivery");
+    if (promoted.session_id) await selectSession(promoted.session_id);
+  } catch (err) {
+    toast(err.message);
+  }
+}
+
+function renderInitiatives() {
+  const project = state.projects.find((candidate) => candidate.id === currentProjectId());
+  $("#initiative-project").textContent = project ? project.name : "未选择";
+  $("#initiative-count").textContent = `${state.initiatives.length} 项`;
+  const box = $("#initiative-list");
+  if (!state.initiatives.length) {
+    box.innerHTML = `<div class="empty-dashboard">还没有事项。先保存原始 Signal，再补证据和边界。</div>`;
+    return;
+  }
+  const decisionLabel = { build: "Build", experiment: "Experiment", defer: "Defer", reject: "Reject", stop: "Stop" };
+  box.innerHTML = state.initiatives.map((item) => {
+    const readiness = item.readiness || {};
+    const missing = [...(readiness.decision_missing || []), ...(readiness.delivery_missing || [])];
+    const decided = Boolean(item.decision);
+    return `<article class="initiative-item ${esc(item.risk_lane)}">
+      <div class="initiative-item-head">
+        <div><h3>${esc(item.title)}</h3><p>${esc(item.raw_signal)}</p></div>
+        <span class="risk-badge">${esc(item.risk_lane)} · v${esc(item.version)}</span>
+      </div>
+      <div class="initiative-facts">
+        <span>Owner ${esc(item.owner)}</span><span>证据 ${(item.evidence || []).length}</span>
+        <span>${esc(item.status)}</span>${item.decision ? `<span>决定 ${esc(decisionLabel[item.decision] || item.decision)}</span>` : ""}
+      </div>
+      ${missing.length && !decided ? `<div class="initiative-blockers">当前缺口：${esc([...new Set(missing)].join("、"))}</div>` : ""}
+      ${!decided ? `<details class="initiative-revise"><summary>补充证据与交付合同</summary>
+        <div class="initiative-decision-fields">
+          <label>问题陈述<textarea rows="2" data-initiative-revise-problem="${esc(item.id)}">${esc(item.problem_statement || "")}</textarea></label>
+          <label>交付目标<textarea rows="2" data-initiative-revise-goal="${esc(item.id)}">${esc(item.goal || "")}</textarea></label>
+          <label>证据（每行一条）<textarea rows="2" data-initiative-revise-evidence="${esc(item.id)}">${esc((item.evidence || []).map((entry) => entry.content).join("\n"))}</textarea></label>
+          <label>验收（每行一条）<textarea rows="2" data-initiative-revise-acceptance="${esc(item.id)}">${esc((item.acceptance || []).join("\n"))}</textarea></label>
+          <label>影响领域<input data-initiative-revise-areas="${esc(item.id)}" value="${esc((item.affected_areas || []).join(", "))}"></label>
+          <label>可恢复性<select data-initiative-revise-reversibility="${esc(item.id)}">
+            ${["easy", "partial", "hard"].map((value) => `<option value="${value}" ${item.reversibility === value ? "selected" : ""}>${value}</option>`).join("")}
+          </select></label>
+        </div>
+        <div class="initiative-actions"><button type="button" class="ghost-btn" data-initiative-revise="${esc(item.id)}">保存修订并重新路由</button></div>
+      </details>` : ""}
+      ${!decided ? `<div class="initiative-decision-fields">
+        <label>决定依据<textarea rows="2" data-initiative-rationale="${esc(item.id)}" placeholder="证据、备选与权衡；必填"></textarea></label>
+        <label>Reviewer<input data-initiative-reviewer="${esc(item.id)}" placeholder="Strict Build 必填"></label>
+        <label>复查触发器<input data-initiative-trigger="${esc(item.id)}" placeholder="Defer 必填"></label>
+        <label>实验成功指标<input data-initiative-metric="${esc(item.id)}" placeholder="Experiment 必填"></label>
+        <label>实验停止条件<input data-initiative-stop="${esc(item.id)}" placeholder="Experiment 必填"></label>
+      </div>
+      <div class="initiative-actions">
+        ${["build", "experiment", "defer", "reject", "stop"].map((decision) =>
+          `<button type="button" class="${["reject", "stop"].includes(decision) ? "ghost-btn danger" : "ghost-btn"}" data-initiative-decision="${decision}" data-initiative-id="${esc(item.id)}">${decisionLabel[decision]}</button>`
+        ).join("")}
+      </div>` : ""}
+      ${item.decision === "build" && !item.linked_task_id ? `<div class="initiative-actions"><button type="button" class="send" data-initiative-promote="${esc(item.id)}">生成交付合同并进入 Harness</button></div>` : ""}
+      ${item.linked_task_id ? `<div class="initiative-linked">已关联 ${esc(item.linked_task_id)}；后续质量结论以 Task / Eval / 人审证据为准。</div>` : ""}
+    </article>`;
+  }).join("");
+  document.querySelectorAll("[data-initiative-decision]").forEach((button) => {
+    button.addEventListener("click", () => decideInitiative(button.dataset.initiativeId, button.dataset.initiativeDecision));
+  });
+  document.querySelectorAll("[data-initiative-revise]").forEach((button) => {
+    button.addEventListener("click", () => reviseInitiative(button.dataset.initiativeRevise));
+  });
+  document.querySelectorAll("[data-initiative-promote]").forEach((button) => {
+    button.addEventListener("click", () => promoteInitiative(button.dataset.initiativePromote));
+  });
+}
+
+function exportWorkbenchSnapshot() {
+  const project = state.projects.find((item) => item.id === currentProjectId()) || null;
+  const snapshot = {
+    schema_version: "harness.workbench-snapshot/v1",
+    exported_at: new Date().toISOString(),
+    project,
+    course: state.courseStatus,
+    metrics: workbenchStatusCounts(),
+    runtime: state.pluginRuntime,
+    feedback: state.feedbackSummary,
+    evolutions: state.evolutionSummary,
+    initiatives: state.initiatives.slice(0, 100),
+    tasks: state.tasks.slice(0, 100),
+    sessions: state.sessions.slice(0, 100),
+    note: "不包含密钥和运行数据库；这是用于复盘的只读证据快照。",
+  };
+  const blob = new Blob([JSON.stringify(snapshot, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = `flow-erp-workbench-${new Date().toISOString().slice(0, 10)}.json`;
+  anchor.click();
+  URL.revokeObjectURL(url);
+  toast("工作台证据快照已导出");
+}
+
 async function loadShell() {
-  const [health, projects, sessions, plugins, profiles, tools, capabilities, tasks, employees, courseStatus] = await Promise.all([
+  const [health, projects, sessions, plugins, profiles, tools, capabilities, deliveryViews, employees, courseStatus,
+    pluginRuntime, pluginEvents, feedbackSummary, evolutionSummary, tasks, initiatives] = await Promise.all([
     api("/api/v1/health"),
     api("/api/v1/projects"),
     api("/api/v1/sessions?limit=100"),
@@ -1377,9 +1867,15 @@ async function loadShell() {
     api("/api/v1/profiles"),
     api("/api/v1/tools"),
     api("/api/v1/capabilities"),
-    api("/api/v1/tasks?limit=200").catch(() => ({ items: [] })),
+    api("/api/v1/delivery/views?limit=200").catch(() => ({ items: [] })),
     api("/api/v1/employees").catch(() => ({ items: DEFAULT_EMPLOYEES })),
     api("/api/v1/course/status").catch(() => ({ course_ready: false })),
+    api("/api/v1/profiles/PROFILE-DEFAULT/runtime").catch(() => null),
+    api("/api/v1/plugin-events?profile_id=PROFILE-DEFAULT&limit=20").catch(() => ({ items: [] })),
+    api("/api/v1/feedback").catch(() => ({ total: 0, items: [] })),
+    api("/api/v1/evolutions?limit=50").catch(() => ({ total: 0, items: [] })),
+    api("/api/v1/tasks?limit=100").catch(() => ({ items: [] })),
+    api("/api/v1/initiatives?limit=100").catch(() => ({ items: [] })),
   ]);
   state.projects = projects.items || [];
   state.sessions = sessions.items || [];
@@ -1387,9 +1883,16 @@ async function loadShell() {
   state.profiles = profiles.items || [];
   state.tools = tools.items || [];
   state.capabilities = capabilities;
+  state.health = health;
   state.courseStatus = courseStatus;
+  state.pluginRuntime = pluginRuntime;
+  state.pluginEvents = pluginEvents.items || [];
+  state.feedbackSummary = feedbackSummary;
+  state.evolutionSummary = evolutionSummary;
+  state.tasks = tasks.items || [];
+  state.initiatives = initiatives.items || [];
   state.employees = (employees.items && employees.items.length) ? employees.items : DEFAULT_EMPLOYEES.slice();
-  ingestTasks(tasks.items || []);
+  ingestDeliveryViews(deliveryViews.items || []);
   if (!$("#proj-root").value && health.repository_root) {
     $("#proj-root").value = health.repository_root;
   }
@@ -1397,6 +1900,8 @@ async function loadShell() {
   renderSessions();
   renderSettings();
   renderCollabBar();
+  renderDashboard();
+  renderInitiatives();
 }
 
 function renderEmployeeChips() {
@@ -1435,7 +1940,39 @@ function bind() {
   syncSessionFilters();
   syncRoleChips();
 
-  $("#new-chat").addEventListener("click", createSession);
+  $("#new-chat").addEventListener("click", () => openDecisionWithSignal());
+  $("#back-dashboard").addEventListener("click", () => setWorkbenchView("dashboard"));
+  $("#decision-back").addEventListener("click", () => setWorkbenchView("dashboard"));
+  $("#initiative-create").addEventListener("click", createInitiative);
+  document.querySelectorAll("[data-workbench-view]").forEach((button) => {
+    button.addEventListener("click", () => setWorkbenchView(button.dataset.workbenchView, button.dataset.target || ""));
+  });
+  document.querySelectorAll("[data-open-delivery]").forEach((button) => {
+    button.addEventListener("click", () => setWorkbenchView("delivery"));
+  });
+  $("#dashboard-new").addEventListener("click", () => setWorkbenchView("decision"));
+  $("#empty-go-decision").addEventListener("click", () => openDecisionWithSignal());
+  $("#delivery-new-initiative").addEventListener("click", () => openDecisionWithSignal());
+  $("#dashboard-settings").addEventListener("click", () => $("#settings").showModal());
+  $("#dashboard-export").addEventListener("click", exportWorkbenchSnapshot);
+  $("#toggle-message-density").addEventListener("click", () => {
+    state.showAllMessages = !state.showAllMessages;
+    renderMessages();
+  });
+  $("#review-cancel").addEventListener("click", () => $("#review-dialog").close());
+  $("#review-confirm").addEventListener("click", submitReview);
+  $("#dashboard-send").addEventListener("click", () => {
+    const request = ($("#dashboard-prompt").value || "").trim();
+    if (!request) return toast("先记录用户、业务或运行现场的原始信号");
+    $("#dashboard-prompt").value = "";
+    openDecisionWithSignal(request);
+  });
+  $("#dashboard-prompt").addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      $("#dashboard-send").click();
+    }
+  });
   $("#send").addEventListener("click", sendPrompt);
   $("#open-settings").addEventListener("click", () => $("#settings").showModal());
   $("#open-help").addEventListener("click", () => $("#help-dialog").showModal());
@@ -1498,9 +2035,8 @@ function bind() {
 
   document.querySelectorAll(".example").forEach((btn) => {
     btn.addEventListener("click", () => {
-      $("#prompt").value = btn.dataset.prompt || "";
-      $("#prompt").focus();
-      toast("已填入示例，确认后点「开始交付」");
+      openDecisionWithSignal(btn.dataset.prompt || "");
+      toast("已保留为原始 Signal；请补来源、证据和决定");
     });
   });
 
@@ -1541,14 +2077,24 @@ function bind() {
 bind();
 syncShell();
 setView("chat");
+setWorkbenchView(state.workbenchView);
 loadShell()
   .then(() => {
     if (!currentProjectId() && state.projects[0]) {
       $("#project-id").value = state.projects[0].id;
       localStorage.setItem(WORKSPACE_KEY, state.projects[0].id);
       syncComposerEnabled();
+      renderInitiatives();
     }
     if (state.sessions[0]) return selectSession(state.sessions[0].id);
     clearLocalSession();
   })
-  .catch((err) => toast(err.message));
+  .catch((err) => {
+    console.error("workbench bootstrap failed", err);
+    const runtime = $("#runtime-summary");
+    if (runtime) {
+      runtime.textContent = `加载失败：${err.message}`;
+      runtime.className = "status-chip warn";
+    }
+    toast(err.message);
+  });

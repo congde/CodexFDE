@@ -32,7 +32,9 @@ class ReportService:
             "FROM invoices WHERE organization_id=? AND invoice_type='receivable' AND status IN ('issued','partially_paid')", (org,)
         ) or {}
         payables = self.store.row(
-            "SELECT COALESCE(SUM(outstanding_cents),0) AS payable_cents FROM invoices WHERE organization_id=? AND invoice_type='payable' AND status IN ('issued','partially_paid')", (org,)
+            "SELECT COALESCE(SUM(outstanding_cents),0) AS payable_cents,"
+            "COALESCE(SUM(CASE WHEN due_date<date('now') THEN outstanding_cents ELSE 0 END),0) AS overdue_payable_cents "
+            "FROM invoices WHERE organization_id=? AND invoice_type='payable' AND status IN ('issued','partially_paid')", (org,)
         ) or {}
         pending = {
             "sales_to_ship": int(self.store.scalar("SELECT COUNT(*) FROM sales_documents WHERE organization_id=? AND status IN ('reserved','partially_shipped')", (org,)) or 0),
@@ -143,21 +145,35 @@ class ReportService:
             "WHERE b.organization_id=? AND b.on_hand>0 ORDER BY age_days DESC,p.sku", (as_of, as_of, principal.organization_id),
         )
 
-    def ar_aging(self, principal: Principal, as_of: str | None = None) -> dict:
+    def _invoice_aging(self, principal: Principal, invoice_type: str,
+                       partner_table: str, as_of: str | None = None) -> dict:
         principal.require("finance.read")
         as_of = as_of or date.today().isoformat(); validate_iso_date(as_of, "截止日期")
         rows = self.store.rows(
-            "SELECT i.id,i.invoice_number,i.partner_id,c.code AS partner_code,c.name AS partner_name,i.due_date,i.outstanding_cents,"
-            "CAST(julianday(?) - julianday(i.due_date) AS INTEGER) AS overdue_days FROM invoices i JOIN customer_master c ON c.id=i.partner_id "
-            "WHERE i.organization_id=? AND i.invoice_type='receivable' AND i.status IN ('issued','partially_paid') ORDER BY i.due_date",
-            (as_of, principal.organization_id),
+            f"SELECT i.id,i.invoice_number,i.partner_id,p.code AS partner_code,p.name AS partner_name,"
+            "i.invoice_date,i.due_date,i.currency,i.outstanding_cents,"
+            f"CAST(julianday(?) - julianday(i.due_date) AS INTEGER) AS overdue_days FROM invoices i JOIN {partner_table} p ON p.id=i.partner_id "
+            "WHERE i.organization_id=? AND p.organization_id=i.organization_id AND i.invoice_type=? "
+            "AND i.status IN ('issued','partially_paid') AND i.outstanding_cents>0 ORDER BY i.due_date,i.invoice_number",
+            (as_of, principal.organization_id, invoice_type),
         )
         buckets = {"current": 0, "1_30": 0, "31_60": 0, "61_90": 0, "over_90": 0}
         for row in rows:
             days = row["overdue_days"]
             key = "current" if days <= 0 else "1_30" if days <= 30 else "31_60" if days <= 60 else "61_90" if days <= 90 else "over_90"
             buckets[key] += row["outstanding_cents"]; row["bucket"] = key
-        return {"as_of": as_of, "buckets": buckets, "total_cents": sum(buckets.values()), "items": rows}
+        return {
+            "as_of": as_of, "invoice_type": invoice_type, "buckets": buckets,
+            "total_cents": sum(buckets.values()),
+            "overdue_cents": sum(value for key, value in buckets.items() if key != "current"),
+            "items": rows,
+        }
+
+    def ar_aging(self, principal: Principal, as_of: str | None = None) -> dict:
+        return self._invoice_aging(principal, "receivable", "customer_master", as_of)
+
+    def ap_aging(self, principal: Principal, as_of: str | None = None) -> dict:
+        return self._invoice_aging(principal, "payable", "supplier_master", as_of)
 
     def reorder_suggestions(self, principal: Principal, site_id: str = "") -> list[dict]:
         principal.require("purchase.read")

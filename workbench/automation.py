@@ -8,6 +8,7 @@ from typing import Callable
 
 from eval.harness import run_suite
 
+from .feedback import observe_task_failure
 from .spec import normalize_business_refs, normalize_requirement_id, write_delivery_spec
 from .task_store import TaskStore
 from .workflow import run_task
@@ -49,7 +50,7 @@ class DeliveryAutomation:
     def submit(self, request: str, requirement_id: str = "",
                business_refs: list[str] | None = None, actor: str = "system",
                execution_mode: str = "verify", write_scope: list[str] | None = None,
-               execution_timeout_seconds: int = 900) -> dict:
+               execution_timeout_seconds: int = 900, *, auto_start: bool = True) -> dict:
         requirement = normalize_requirement_id(requirement_id)
         refs = normalize_business_refs(request, business_refs)
         if not refs:
@@ -79,7 +80,8 @@ class DeliveryAutomation:
                 task_id, "failed", "自动生成 Spec 失败", actor="automation",
                 evidence={"error_type": type(exc).__name__}, error=str(exc),
             )
-        self.start(task_id, actor="automation")
+        if auto_start:
+            self.start(task_id, actor="automation")
         return self.store.get(task_id)
 
     def capabilities(self) -> dict:
@@ -123,6 +125,7 @@ class DeliveryAutomation:
 
     def _execute(self, task_id: str, actor: str) -> None:
         retry = False
+        attempts = 1
         try:
             attempts = sum(
                 event["detail"] == "自动流水线开始推进"
@@ -159,9 +162,21 @@ class DeliveryAutomation:
                         "last_eval": (result.get("result") or {}).get("summary"),
                     },
                 )
-            elif result["status"] in {"rework", "failed"}:
+            elif result["status"] == "rework":
+                self.store.append_event(
+                    task_id, "有界重试已耗尽，保留阻断失败并等待人工处理", actor=actor,
+                    evidence={
+                        "attempts": attempts,
+                        "max_attempts": self.max_attempts,
+                        "last_status": result["status"],
+                        "last_error": result.get("error"),
+                        "last_eval": (result.get("result") or {}).get("summary"),
+                        "failure_preserved": True,
+                    },
+                )
+            elif result["status"] == "failed":
                 self.store.transition(
-                    task_id, "dead_letter", "自动流水线已耗尽重试或遇到不可重试失败，转人工处理",
+                    task_id, "dead_letter", "自动流水线遇到不可重试的执行失败，转人工处理",
                     actor=actor,
                     evidence={
                         "attempts": attempts,
@@ -172,7 +187,68 @@ class DeliveryAutomation:
                     },
                     error=result.get("error") or "自动流水线未能收敛",
                 )
+        except Exception as exc:
+            # Never leave a crashed worker in an in-progress durable status.
+            # Preserve the exception as evidence and reuse the same bounded
+            # retry policy as a blocking Eval failure.
+            task = self.store.get(task_id)
+            evidence = {
+                "attempt": attempts,
+                "max_attempts": self.max_attempts,
+                "error_type": type(exc).__name__,
+                "error": str(exc),
+                "failure_preserved": True,
+            }
+            if task["status"] in {"executing", "evaluating", "review"}:
+                task = self.store.transition(
+                    task_id, "rework", "自动流水线异常中断，保留现场并进入有界返工",
+                    actor=actor, evidence=evidence, error=str(exc),
+                )
+            elif task["status"] in {"queued", "spec_ready"}:
+                task = self.store.transition(
+                    task_id, "failed", "自动流水线在执行前异常中断",
+                    actor=actor, evidence=evidence, error=str(exc),
+                )
+            else:
+                task = self.store.append_event(
+                    task_id, "自动流水线捕获未处理异常", actor=actor, evidence=evidence,
+                )
+            if task["status"] == "rework" and attempts < self.max_attempts:
+                retry = True
+                self.store.append_event(
+                    task_id, "自动流水线为异常中断安排有界重试", actor=actor,
+                    evidence={**evidence, "next_attempt": attempts + 1},
+                )
+            elif task["status"] == "rework":
+                self.store.append_event(
+                    task_id, "异常重试已耗尽，保留失败并等待人工处理", actor=actor,
+                    evidence=evidence,
+                )
+            elif task["status"] == "failed":
+                self.store.transition(
+                    task_id, "dead_letter", "不可安全重试的流水线异常转人工处理",
+                    actor=actor, evidence=evidence, error=str(exc),
+                )
         finally:
+            if not retry:
+                task = self.store.get(task_id)
+                if task["status"] in {"rework", "failed", "dead_letter"}:
+                    try:
+                        feedback = observe_task_failure(task, self.store.path)
+                    except Exception as exc:
+                        self.store.append_event(
+                            task_id, "自动沉淀失败反馈失败，任务终态保持不变", actor="automation",
+                            evidence={"error_type": type(exc).__name__, "error": str(exc)},
+                        )
+                    else:
+                        self.store.append_event(
+                            task_id, "失败已沉淀为待具名审核的反馈候选", actor="automation",
+                            evidence={
+                                "feedback_id": feedback["id"],
+                                "feedback_status": feedback["status"],
+                                "automatic_acceptance": False,
+                            },
+                        )
             next_item: tuple[str, str] | None = None
             with self._lock:
                 self._threads.pop(task_id, None)
@@ -184,7 +260,19 @@ class DeliveryAutomation:
                 self.start(*next_item)
 
     def wait(self, task_id: str, timeout: float = 30.0) -> dict:
+        """Wait until terminal without abandoning a live worker.
+
+        Each durable state transition refreshes the deadline. This keeps a
+        progressing multi-stage task alive. A live worker may legitimately
+        spend longer than the caller's soft timeout inside an Eval subprocess;
+        its task-level execution timeout is the hard bound. We never raise the
+        soft timeout while that worker still owns files or database handles.
+        """
         deadline = time.monotonic() + timeout
+        task = self.store.get(task_id)
+        execution_timeout = int(task.get("execution_timeout_seconds", 900) or 900)
+        hard_deadline = time.monotonic() + max(timeout, execution_timeout + 30)
+        last_version: int | None = None
         while True:
             with self._lock:
                 # Read the durable state while holding the same lock used when
@@ -197,17 +285,28 @@ class DeliveryAutomation:
                 active = bool((worker and worker.is_alive()) or any(
                     pending_id == task_id for pending_id, _ in self._pending
                 ))
+            version = int(task.get("version", 0) or 0)
+            if last_version is None or version != last_version:
+                last_version = version
+                deadline = time.monotonic() + timeout
             # ``rework`` is both a durable replay checkpoint and a terminal
             # blocking-Eval result. During restart recovery a worker owns that
             # checkpoint, so returning it early would leave SQLite in use and
             # expose an intermediate state as the final outcome.
-            if task["status"] in {"review", "completed", "dead_letter"} or (
-                task["status"] in {"rework", "failed"} and not active
-            ):
+            # A durable terminal status can be visible just before the worker
+            # finishes appending Session evidence and releases SQLite handles.
+            # Wait for worker cleanup as well, otherwise callers can observe an
+            # incomplete event stream or fail to remove a temporary runtime.
+            if task["status"] in {"review", "completed", "dead_letter", "rework", "failed"} and not active:
                 return task
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                raise TimeoutError(f"等待自动流水线超时：{task_id}")
+                if not active:
+                    raise TimeoutError(f"等待自动流水线超时：{task_id}")
+                hard_remaining = hard_deadline - time.monotonic()
+                if hard_remaining <= 0:
+                    raise TimeoutError(f"自动流水线超过任务执行硬超时：{task_id}")
+                remaining = min(0.25, hard_remaining)
             if worker:
                 worker.join(min(remaining, 0.25))
             else:

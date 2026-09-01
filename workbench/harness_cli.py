@@ -133,6 +133,16 @@ class HarnessShell(cmd.Cmd):
         profile_id = arg.strip() or "PROFILE-DEFAULT"
         _emit(self.terminal.dump_config(profile_id), json_mode=self.json_mode)
 
+    def do_plugin_runtime(self, arg: str) -> None:
+        """plugin-runtime [profile_id] — 查看插件状态、依赖 epoch 与活动服务。"""
+        profile_id = arg.strip() or "PROFILE-DEFAULT"
+        _emit(self.terminal.plugin_runtime(profile_id), json_mode=True)
+
+    def do_plugin_events(self, arg: str) -> None:
+        """plugin-events [profile_id] — 查看追加式插件生命周期证据。"""
+        profile_id = arg.strip() or None
+        _emit({"items": self.terminal.plugin_events(profile_id)}, json_mode=True)
+
     def do_profiles(self, arg: str) -> None:
         """列出可用 Profile。"""
         items = self.terminal.list_profiles()
@@ -344,6 +354,7 @@ class HarnessShell(cmd.Cmd):
 
     def do_quit(self, arg: str) -> bool:
         """退出终端工作台。"""
+        self.terminal.close()
         print("再见。")
         return True
 
@@ -369,6 +380,11 @@ def build_parser() -> argparse.ArgumentParser:
     composition_cmd.add_argument("--profile", default="PROFILE-DEFAULT")
     dump_config_cmd = sub.add_parser("dump-config", help="导出完整 Harness 配置（对标 dsh --dump-config）")
     dump_config_cmd.add_argument("--profile", default="PROFILE-DEFAULT")
+    plugin_runtime_cmd = sub.add_parser("plugin-runtime", help="查看插件状态、依赖 epoch 与活动服务")
+    plugin_runtime_cmd.add_argument("--profile", default="PROFILE-DEFAULT")
+    plugin_events_cmd = sub.add_parser("plugin-events", help="查看追加式插件生命周期证据")
+    plugin_events_cmd.add_argument("--profile")
+    plugin_events_cmd.add_argument("--limit", type=int, default=100)
 
     export_cmd = sub.add_parser("export", help="导出 Session 证据包（JSON）")
     export_cmd.add_argument("session_id")
@@ -468,6 +484,7 @@ def main(argv: list[str] | None = None) -> int:
             shell.cmdloop()
         except KeyboardInterrupt:
             print("\n再见。")
+            terminal.close()
         return 0
 
     if command == "bootstrap":
@@ -497,6 +514,18 @@ def main(argv: list[str] | None = None) -> int:
         payload = terminal.dump_config(getattr(args, "profile", "PROFILE-DEFAULT"))
         _emit(payload, json_mode=args.json)
         return 0 if payload.get("composition", {}).get("ready") else 1
+
+    if command == "plugin-runtime":
+        payload = terminal.plugin_runtime(getattr(args, "profile", "PROFILE-DEFAULT"))
+        _emit(payload, json_mode=True)
+        return 0 if not payload.get("pending_plugins") else 1
+
+    if command == "plugin-events":
+        payload = {"items": terminal.plugin_events(
+            getattr(args, "profile", None), getattr(args, "limit", 100),
+        )}
+        _emit(payload, json_mode=True)
+        return 0
 
     if command == "profiles":
         _emit({"items": terminal.list_profiles()}, json_mode=args.json)

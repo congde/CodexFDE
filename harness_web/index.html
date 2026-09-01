@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Harness · FlowERP 交付</title>
-  <link rel="stylesheet" href="./styles.css?v=18">
+  <title>我的 AI 研发工作台 · FlowERP</title>
+  <link rel="stylesheet" href="./styles.css?v=27">
 </head>
 <body>
   <div class="app" id="app">
@@ -13,10 +13,10 @@
         <button type="button" id="toggle-sidebar" class="icon-btn" title="折叠侧栏" aria-label="折叠侧栏">☰</button>
         <span class="fish" aria-hidden="true">◇</span>
         <div class="brand-text">
-          <strong>Harness</strong>
-          <span>OPC · Agent 员工</span>
+          <strong>AI 研发工作台</strong>
+          <span>Workbench × FlowERP</span>
         </div>
-        <button type="button" id="new-chat" class="icon-btn primary" title="新建交付会话" aria-label="新建会话">＋</button>
+        <button type="button" id="new-chat" class="icon-btn primary" title="记录一个新事项" aria-label="记录新事项">＋</button>
       </div>
 
       <button type="button" id="pick-workspace" class="ws-chip" title="选择要改的产品代码仓库">
@@ -26,6 +26,13 @@
           <b id="workspace-label">未选择</b>
         </span>
       </button>
+
+      <nav class="module-nav" aria-label="工作台模块">
+        <button type="button" class="module-link active" data-workbench-view="dashboard" data-target="dashboard-top"><span>⌂</span><b>今日总览</b></button>
+        <button type="button" class="module-link" data-workbench-view="decision"><span>◇</span><b>事项与决策</b></button>
+        <button type="button" class="module-link" data-workbench-view="delivery"><span>✦</span><b>交付与验收</b></button>
+        <a class="module-link product-link" href="http://127.0.0.1:8000/" target="_blank" rel="noopener"><span>↗</span><b>打开 FlowERP</b><em>真实产品</em></a>
+      </nav>
 
       <div class="sb-scroll">
         <div class="sb-caption">最近交付</div>
@@ -42,7 +49,7 @@
         <label class="actor">老板身份（你）
           <input id="actor" placeholder="你的名字" value="boss" autocomplete="username">
         </label>
-        <div class="role-quick" id="employee-chips" title="Agent 员工班组（不可登录）">
+        <div class="role-quick" id="employee-chips" title="流水线职责投影；是否由真实模型执行以运行时 Provider 为准">
           <span class="chip-mini" data-emp="agent:spec">规格员</span>
           <span class="chip-mini" data-emp="agent:coder">工程师</span>
           <span class="chip-mini" data-emp="agent:reviewer">质检员</span>
@@ -55,12 +62,155 @@
     </aside>
 
     <main class="conversation">
+      <nav class="compact-nav" aria-label="快捷导航">
+        <button type="button" class="compact-nav-link module-link" data-workbench-view="dashboard" data-target="dashboard-top"><span>⌂</span><b>总览</b></button>
+        <button type="button" class="compact-nav-link module-link" data-workbench-view="decision"><span>◇</span><b>判断</b></button>
+        <button type="button" class="compact-nav-link module-link" data-workbench-view="delivery"><span>✦</span><b>交付</b></button>
+        <a class="compact-nav-link module-link" href="http://127.0.0.1:8000/" target="_blank" rel="noopener"><span>↗</span><b>FlowERP</b></a>
+      </nav>
+      <section id="dashboard-view" class="dashboard-view" aria-label="研发工作台总览">
+        <header class="dashboard-header" id="dashboard-top">
+          <div>
+            <span class="eyebrow">PERSONAL AI DEVELOPMENT WORKBENCH</span>
+            <h1>我的 AI 研发工作台</h1>
+            <p>从真实 FlowERP 需求出发，用交付结果持续升级工作台。</p>
+          </div>
+          <div class="dashboard-actions">
+            <button type="button" id="dashboard-export" class="ghost-btn">导出证据快照</button>
+            <button type="button" id="dashboard-new" class="send">＋ 新建事项</button>
+          </div>
+        </header>
+
+        <div class="dashboard-scroll">
+          <section class="focus-card">
+            <div class="focus-copy">
+              <span id="dashboard-date" class="focus-date">今天</span>
+              <h2>今天的 FlowERP 交付目标</h2>
+              <p><span id="dashboard-project">等待工作区</span><span class="middle-dot">·</span><span id="dashboard-course">课程状态读取中</span></p>
+            </div>
+            <div class="quick-capture">
+              <label for="dashboard-prompt">业务信号快录</label>
+              <textarea id="dashboard-prompt" rows="3" placeholder="保留用户、业务或运行现场的原话；先判断，再决定是否开发…"></textarea>
+              <div>
+                <span>证据 → 风险路由 → Build / Experiment / Defer / Reject / Stop</span>
+                <button type="button" id="dashboard-send" class="send">进入判断</button>
+              </div>
+            </div>
+          </section>
+
+          <section class="metric-grid" aria-label="今日交付指标">
+            <article><span>进行中</span><strong id="metric-active">0</strong><small>正在执行的交付</small></article>
+            <article><span>待终审</span><strong id="metric-review">0</strong><small>需要你的判断</small></article>
+            <article><span>阻断失败</span><strong id="metric-blocked">0</strong><small>不能伪装成成功</small></article>
+            <article><span>已完成</span><strong id="metric-completed">0</strong><small>有证据的交付</small></article>
+          </section>
+
+          <section id="attention-panel" class="attention-panel" aria-live="polite"></section>
+
+          <div class="dashboard-grid">
+            <div class="dashboard-column wide-column">
+              <section class="work-card" id="today-card">
+                <div class="card-head"><div><span class="card-kicker">TODAY</span><h2>今日交付</h2></div><button type="button" class="linkish" data-open-delivery>查看全部</button></div>
+                <div id="today-task-list" class="today-task-list"></div>
+              </section>
+
+              <section class="work-card" id="capability-card">
+                <div class="card-head"><div><span class="card-kicker">SYSTEM EVIDENCE</span><h2>工作台能力证据</h2></div><span id="runtime-summary" class="status-chip">读取中</span></div>
+                <p class="card-intro">这里不是功能菜单。“已验证”必须来自真实 Task；只有运行时存在但尚无任务证据时，明确标为“可用未使用”。</p>
+                <div id="capability-map" class="capability-map"></div>
+              </section>
+
+              <section class="work-card" id="evidence-card">
+                <div class="card-head"><div><span class="card-kicker">EVIDENCE</span><h2>最近证据</h2></div><span class="muted">可追溯 · 可复验</span></div>
+                <div id="recent-evidence" class="evidence-list"></div>
+              </section>
+            </div>
+
+            <div class="dashboard-column">
+              <section class="work-card accent-card" id="quality-card">
+                <div class="card-head"><div><span class="card-kicker">QUALITY EVIDENCE</span><h2>最近一次质量证据</h2></div><span id="quality-dot" class="live-dot"></span></div>
+                <div id="quality-summary" class="quality-summary"></div>
+              </section>
+
+              <section class="work-card" id="flowerp-card">
+                <div class="card-head"><div><span class="card-kicker">PRODUCT CONTRACT</span><h2>FlowERP 业务规则</h2></div><span id="flow-rules-status" class="status-chip">等待 Eval</span></div>
+                <p class="card-intro">规则来自项目合同；绿勾只表示最近一次 Blocking Eval 中对应用例通过。</p>
+                <div id="flow-rules" class="rule-list"></div>
+              </section>
+
+              <section class="work-card" id="evolution-card">
+                <div class="card-head"><div><span class="card-kicker">EVOLUTION SUMMARY</span><h2>反馈与进化摘要</h2></div><span id="evolution-count" class="status-chip">0 条</span></div>
+                <div id="feedback-summary" class="evolution-summary"></div>
+              </section>
+
+              <section class="work-card compact-card" id="plugin-card">
+                <div class="card-head"><div><span class="card-kicker">RUNTIME</span><h2>插件运行时</h2></div><button type="button" id="dashboard-settings" class="linkish">配置</button></div>
+                <div id="plugin-summary" class="plugin-summary"></div>
+              </section>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="decision-view" class="decision-view" hidden aria-label="事项与产品决策">
+        <header class="decision-header">
+          <div>
+            <span class="eyebrow">DECISION BEFORE DELIVERY</span>
+            <h1>事项与决策</h1>
+            <p>先确认该不该做、为什么做、风险多大；只有通过决策门的 Build 才能进入交付。</p>
+          </div>
+          <button type="button" id="decision-back" class="ghost-btn">← 工作台总览</button>
+        </header>
+        <div class="decision-scroll">
+          <section class="initiative-capture work-card">
+            <div class="card-head">
+              <div><span class="card-kicker">SIGNAL INTAKE</span><h2>记录一个待判断事项</h2></div>
+              <span class="status-chip">不直接创建 Task</span>
+            </div>
+            <div class="initiative-form">
+              <label>事项标题<input id="initiative-title" placeholder="例如：库存不足时给出可解释拒单"></label>
+              <label>Signal 来源<input id="initiative-source" placeholder="用户访谈、客服工单、运行告警、业务数据……"></label>
+              <label class="span-2">未经改写的原始信号<textarea id="initiative-signal" rows="2" placeholder="保留原话和现场，不要先写成解决方案"></textarea></label>
+              <label class="span-2">问题陈述<textarea id="initiative-problem" rows="2" placeholder="谁在什么场景遇到什么问题，造成什么影响"></textarea></label>
+              <label>交付目标<textarea id="initiative-goal" rows="2" placeholder="若决定 Build，要改变什么可观察结果"></textarea></label>
+              <label>验收条件（每行一条）<textarea id="initiative-acceptance" rows="2" placeholder="正常路径与失败路径"></textarea></label>
+              <label>证据（每行一条）<textarea id="initiative-evidence" rows="2" placeholder="用户反馈、数据、事故或实验事实"></textarea></label>
+              <label>假设（每行一条）<textarea id="initiative-assumptions" rows="2" placeholder="尚未证实的判断"></textarea></label>
+              <label>影响领域（逗号分隔）<input id="initiative-areas" placeholder="inventory, order, api, schema, auth……"></label>
+              <label>可恢复性<select id="initiative-reversibility"><option value="easy">容易恢复</option><option value="partial">部分可恢复</option><option value="hard">难以恢复</option></select></label>
+              <label>非目标（每行一条）<textarea id="initiative-non-goals" rows="2"></textarea></label>
+              <label>约束（每行一条）<textarea id="initiative-constraints" rows="2"></textarea></label>
+            </div>
+            <div class="initiative-submit-row">
+              <span>当前工作区：<b id="initiative-project">未选择</b></span>
+              <button type="button" id="initiative-create" class="send">保存并计算风险</button>
+            </div>
+          </section>
+
+          <section class="decision-lanes" aria-label="风险通道说明">
+            <article><b>Quick</b><span>局部、容易恢复；轻量检查</span></article>
+            <article><b>Standard</b><span>API、Schema、跨团队或部分可恢复</span></article>
+            <article><b>Strict</b><span>库存、资金、权限、隐私或难以恢复</span></article>
+          </section>
+
+          <section class="work-card">
+            <div class="card-head">
+              <div><span class="card-kicker">DECISION QUEUE</span><h2>待判断与已决事项</h2></div>
+              <span id="initiative-count" class="status-chip">0 项</span>
+            </div>
+            <div id="initiative-list" class="initiative-list"></div>
+          </section>
+        </div>
+      </section>
+
+      <section id="delivery-view" class="delivery-view" hidden>
       <header class="conv-header">
         <div class="title-block">
           <h1 id="chat-title">新交付</h1>
           <p id="chat-sub">提一个 FlowERP 小需求，工作台改代码并跑验收</p>
         </div>
         <div class="header-right">
+          <button type="button" id="back-dashboard" class="ghost-btn">← 工作台总览</button>
           <span id="task-badge" class="pill">空闲</span>
           <div class="view-tabs" role="tablist">
             <button type="button" class="tab active" data-view="chat" role="tab">对话</button>
@@ -80,7 +230,8 @@
         </div>
       </header>
 
-      <div id="collab-bar" class="collab-bar" hidden></div>
+      <div id="review-banner" class="review-banner" hidden></div>
+      <div id="recovery-banner" class="recovery-banner" hidden></div>
 
       <div class="rail" id="progress-rail" hidden>
         <div class="rail-head">
@@ -91,23 +242,30 @@
         <div class="rail-panel" id="rail-panel" hidden></div>
       </div>
 
-      <div id="review-banner" class="review-banner" hidden></div>
-      <div id="recovery-banner" class="recovery-banner" hidden></div>
+      <div id="collab-bar" class="collab-bar" hidden></div>
 
       <div class="conv-body" data-conversation-scroll>
         <div id="view-chat" class="view">
           <div id="empty-state" class="hero">
-            <ol class="steps-guide">
-              <li><b>选工作区</b><span>左侧点工作区，默认 FlowERP 代码库</span></li>
-              <li><b>老板下需求</b><span>你是超级个体；规格员/工程师/质检员都是 Agent 员工</span></li>
-              <li><b>你终审</b><span>员工跑完流水线后停在「待验收」，由老板具名通过或驳回</span></li>
-            </ol>
-            <p class="hero-note">这是 <strong>OPC 交付台</strong>：一人指挥多名 Agent 员工改 FlowERP 代码。不是多用户账号，也不是库存业务后台。</p>
+            <span class="card-kicker">APPROVED DELIVERY ONLY</span>
+            <h2>交付区只接收已经批准的 Build 事项</h2>
+            <p class="hero-note">新需求先保留原始 Signal、补证据、选择风险通道并形成决定；只有通过决策门后，工作台才生成 Spec、执行和 Eval。</p>
+            <div class="request-pattern" aria-label="建议的需求结构">
+              <span><b>输入</b>原始信号与来源</span>
+              <span><b>判断</b>证据、备选与风险</span>
+              <span><b>交付</b>Build 合同与验收</span>
+            </div>
+            <button type="button" id="empty-go-decision" class="send">记录新事项</button>
+            <p class="example-title">可用这些信号练习判断；点击后不会直接创建 Task</p>
             <div class="example-prompts">
               <button type="button" class="example" data-prompt="给 FlowERP 增加：创建订单时若可用库存不足则明确失败，且不得预占库存。">库存不足拒单</button>
               <button type="button" class="example" data-prompt="给 FlowERP 增加：同一入库幂等键只能生效一次，重复提交返回已有结果。">入库幂等</button>
               <button type="button" class="example" data-prompt="给 FlowERP 增加：采购补货必须人工审批后才能入库。">采购须审批</button>
             </div>
+          </div>
+          <div id="transcript-toolbar" class="transcript-toolbar" hidden>
+            <div><strong>交付摘要</strong><span id="message-count">0 条关键记录</span></div>
+            <button type="button" id="toggle-message-density" class="ghost-btn">显示全部技术记录</button>
           </div>
           <div id="message-stream" class="transcript" hidden></div>
         </div>
@@ -126,7 +284,11 @@
       </div>
 
       <footer class="composer-stack">
-        <div class="composer-card" id="composer-card">
+        <div class="decision-gate" id="delivery-decision-gate">
+          <span><b>新需求不能从这里直接启动</b><small>请先进入“事项与决策”；交付区用于查看已批准任务、证据和人审。</small></span>
+          <button type="button" id="delivery-new-initiative" class="send">＋ 新建事项</button>
+        </div>
+        <div class="composer-card" id="composer-card" hidden aria-hidden="true">
           <textarea id="prompt" rows="3" placeholder="描述要对 FlowERP 做的改动… Enter 发送，Shift+Enter 换行"></textarea>
           <div class="composer-foot">
             <button type="button" id="toggle-advanced" class="linkish">选项</button>
@@ -143,6 +305,7 @@
           </div>
         </div>
       </footer>
+      </section>
     </main>
 
     <aside class="details" id="details" hidden>
@@ -164,12 +327,13 @@
       <div class="help-body">
         <p><strong>FlowERP</strong>：要持续交付的电商 ERP（库存、订单、采购）。</p>
         <p><strong>Harness</strong>：研发自动化工作台——接需求、受控改代码、跑 Eval、留证据、老板终审。</p>
-        <p><strong>OPC 定位</strong>：可选挑战——超级个体带着 Agent 员工干活。规格员 / 工程师 / 质检员是 Agent，不是多用户账号。<strong>不是</strong>大纲 L01～L16 通过标准；结业仍以 Eval / 具名人审 / 证据链为准。</p>
-        <p><strong>职责分离</strong>：工程师改代码，质检员挑刺，只有老板能终审通过；Agent 不能 approve。</p>
+        <p><strong>职责投影</strong>：规格员 / 工程师 / 质检员首先是流水线节点和事件标签，不等于三个独立 Agent。当前是否有真实模型执行，以设置中的 LLM Provider 为准；<code>template</code> 只代表模板驱动。</p>
+        <p><strong>OPC 定位</strong>：多 Agent 是可选挑战，<strong>不是</strong>大纲 L01～L16 通过标准；结业仍以 Eval、具名人审和证据链为准。</p>
+        <p><strong>职责分离</strong>：实现职责负责执行，质检职责负责挑刺，只有老板能终审通过；自动化 actor 不能 approve。</p>
         <p><strong>侧栏筛选</strong>：全部 / 进行中 / 待验收 / 终态。</p>
         <p><strong>死信</strong>：自动化耗尽后的终态。用「复制会话再试」并启用改代码继续。</p>
-        <p><strong>顶部进度条</strong>：跟踪「这一次改 FlowERP」的流水线与值班员工。</p>
-        <p><strong>过程页</strong>：事件账本（含 agent:* 员工 actor），用于复盘和答辩。</p>
+        <p><strong>顶部进度条</strong>：跟踪「这一次改 FlowERP」的流水线与当前职责。</p>
+        <p><strong>过程页</strong>：事件账本（含 agent:* 职责 actor），用于复盘和答辩。</p>
       </div>
     </form>
   </dialog>
@@ -206,8 +370,22 @@
     </form>
   </dialog>
 
+  <dialog id="review-dialog">
+    <form method="dialog" class="dlg review-dlg" id="review-form">
+      <header><h2 id="review-dialog-title">终审交付</h2><button value="cancel" class="icon-btn">✕</button></header>
+      <input id="review-decision" type="hidden">
+      <label for="review-note">判断依据</label>
+      <textarea id="review-note" rows="5" placeholder="说明通过或驳回的证据与理由…"></textarea>
+      <p class="note">该记录会以当前老板身份写入证据链；自动化 actor 不能代替你终审。</p>
+      <div class="dialog-actions">
+        <button type="button" id="review-cancel" class="ghost-btn">取消</button>
+        <button type="button" id="review-confirm" class="send">确认提交</button>
+      </div>
+    </form>
+  </dialog>
+
   <select id="project-id" hidden></select>
   <div id="toast" role="status" aria-live="polite"></div>
-  <script src="./app.js?v=18" defer></script>
+  <script src="./app.js?v=27" defer></script>
 </body>
 </html>

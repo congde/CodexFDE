@@ -13,6 +13,7 @@ def export_session_bundle(
     session_id: str,
     *,
     task: dict | None = None,
+    delivery_view: dict | None = None,
     repository_root: str | Path | None = None,
 ) -> dict:
     session = runtime.get_session(session_id)
@@ -44,6 +45,7 @@ def export_session_bundle(
             "title": session.get("title"),
         },
         "task": task,
+        "delivery_view": delivery_view,
         "repository_root": str(repository_root) if repository_root else None,
         "opc": {
             "mode": "super_individual",
