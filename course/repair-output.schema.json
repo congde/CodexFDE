@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "status": {"enum": ["fixed", "not_fixed", "blocked"]},
+    "changed_files": {"type": "array", "items": {"type": "string"}},
+    "verification": {"type": "array", "items": {"type": "string"}},
+    "remaining_risks": {"type": "array", "items": {"type": "string"}}
+  },
+  "required": ["status", "changed_files", "verification", "remaining_risks"],
+  "additionalProperties": false
+}

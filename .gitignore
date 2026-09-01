@@ -21,17 +21,8 @@ docs/courses/ppt/*
 !docs/courses/ppt/*.pptx
 .codex-tmp/
 .tmp/
-course/
-!course/
-course/*
-!course/FlowERP-AI研发工作台.code-workspace
-!course/tasks/
-course/tasks/*
-!course/tasks/*.md
-!course/baselines/
-course/baselines/*
-!course/baselines/*.md
-course/baselines/PROGRESSION.json
+# 学员跟跑材料入库；讲师侧起始基线门闩与审核证据不同步给学生仓库
+course/baselines/
 
 # Distribution / packaging
 .Python
@@ -257,3 +248,4 @@ data/
 .runtime/
 .tmp/
 *.pptx.inspect.ndjson
+~$*.pptx

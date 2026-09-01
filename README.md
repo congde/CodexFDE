@@ -38,8 +38,7 @@ ERP 需求 → Spec → 工作台受控实现 → Eval / Harness → Repair / Lo
 | `web/` | FlowERP 业务系统前端 + L14 最小交付状态与证据下钻（课程跟跑必做），不替代完整 Harness 驾驶舱 |
 | `tests/` | 单元、集成、HTTP、并发与恢复测试 |
 | `deploy/` | 容器化与冷启动 |
-| `course/tasks/` | 16 讲目标卡、命令卡、验收卡（本地课件） |
-| `course/baselines/` | 逐讲起始基线发布说明与人工证据模板 |
+| `course/tasks/` | 16 讲目标卡、命令卡、验收卡 |
 | `docs/` | 大纲合同、讲义与产品文档（本地资料） |
 
 ## 课程跟跑主路径 vs 可选驾驶舱
@@ -63,10 +62,8 @@ python -X utf8 -m workbench.cli course-contract --lesson 8
 python -X utf8 -m workbench.cli course-spec --lesson 8
 ```
 
-基线发布流程见 [`course/baselines/README.md`](course/baselines/README.md)。
-
 开课就绪：本地存在线性 `course/l01-start`…`course/l16-start` 且  
-`python -X utf8 -m workbench.cli course-status --require-baselines` 退出码 0、`course_ready: true` 时，才可声称支持逐讲红→绿复现。标签在侧分支 `course/baselines` 祖先链上发布后已合并进 `main`，不改写远端历史（推送需另行确认）。
+`python -X utf8 -m workbench.cli course-status --require-baselines` 退出码 0、`course_ready: true` 时，才可声称支持逐讲红→绿复现。标签在侧分支 `course/baselines` 祖先链上发布（讲师侧，不进入学生跟跑树），不改写远端历史（推送需另行确认）。
 
 开课前建议再跑：
 
@@ -75,7 +72,7 @@ python -X utf8 -m unittest tests.test_course_outline_alignment tests.test_progre
 python -X utf8 scripts/sync_outline_contracts.py   # 仅当改过大纲合同字段后
 ```
 
-L04+ 起始红由 `PROGRESSION.json` 门闩保证（见 `course/baselines/README.md`），不是完整产品缺能力 git 史。
+L04+ 起始红由讲师侧 `PROGRESSION.json` 门闩保证（路径 `course/baselines/`，gitignore，不给学生仓库），不是完整产品缺能力 git 史。
 
 可验收合同见 [`FDE_SPEC.md`](FDE_SPEC.md)。Agent 约束见 [`AGENTS.md`](AGENTS.md)。
 

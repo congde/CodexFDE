@@ -48,7 +48,6 @@
 - `web/`：无密钥的 FlowERP 业务演示面板（课程跟跑必做）。
 - `harness_web/`：可选的 Harness 平台驾驶舱（非大纲 L01～L16 通过标准）。
 - `course/tasks/`：16 讲目标卡、命令卡、验收卡。
-- `course/baselines/`：逐讲起始基线发布说明与证据模板。
 - `docs/courses/`：16 讲详细教学设计、讲师手册、建设方案和申报级验收清单。
 - `deploy/`：容器化与冷启动。
 
@@ -64,7 +63,7 @@
 
 开课前检查：`python -X utf8 -m workbench.cli course-status`。只有 `course_ready: true` 且 `--require-baselines` 通过时，才可声称支持逐讲红→绿复现。
 
-L04+ 起始红目前由 `course/baselines/PROGRESSION.json` 门闩保证（见该目录 README）；终态仓库不提交该文件。这不等于已用真实产品缺能力切片重写全部 git 历史。
+L04+ 起始红由 `PROGRESSION.json` 门闩在讲师侧基线提交中表达；终态跟跑仓库不提交该文件（`course/baselines/` 不同步给学生）。这不等于已用真实产品缺能力切片重写全部 git 历史。
 ## 不可破坏的业务规则
 
 1. 可用库存不得为负；预占必须原子化。
