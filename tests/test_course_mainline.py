@@ -3,6 +3,8 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from eval.harness import EVALS
 from workbench.course_mainline import LESSONS, create_lesson_task, lesson_baseline_status, lesson_contract, render_lesson_spec, validate_mainline, write_lesson_spec
@@ -80,6 +82,36 @@ class CourseMainlineTests(unittest.TestCase):
         )
         self.assertTrue(result["course_ready"])
         self.assertFalse(result["baseline_errors"])
+
+    def test_default_status_batches_git_queries_and_caches_unchanged_history(self) -> None:
+        available = [name for name, _level, _fn in EVALS]
+        commits = [f"fake-course-commit-{number:02d}" for number in range(1, 17)]
+        calls: list[list[str]] = []
+
+        def fake_run(command, **_kwargs):
+            calls.append(command)
+            if command[1] == "cat-file":
+                return SimpleNamespace(
+                    returncode=0,
+                    stdout="".join(f"{commit} commit\n" for commit in commits),
+                )
+            if command[1] == "rev-list":
+                lines = []
+                for index in range(15, -1, -1):
+                    parent = f" {commits[index - 1]}" if index else ""
+                    lines.append(f"{commits[index]}{parent}")
+                return SimpleNamespace(returncode=0, stdout="\n".join(lines) + "\n")
+            raise AssertionError(command)
+
+        with patch("workbench.course_mainline.subprocess.run", side_effect=fake_run):
+            first = validate_mainline(".", eval_names=available)
+            second = validate_mainline(".", eval_names=available)
+
+        self.assertTrue(first["course_ready"])
+        self.assertTrue(second["course_ready"])
+        self.assertIn("checked_at", second)
+        self.assertEqual(2, sum(command[1] == "cat-file" for command in calls))
+        self.assertEqual(1, sum(command[1] == "rev-list" for command in calls))
 
     def test_course_task_consumes_lesson_spec_and_write_scope(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

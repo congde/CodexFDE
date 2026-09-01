@@ -8,6 +8,7 @@ const FILTER_KEY = "harness-session-filter";
 const TRAJ_ACTOR_KEY = "harness-traj-actor";
 const WORKBENCH_VIEW_KEY = "harness-workbench-view";
 const POLL_MS = 1400;
+const COURSE_STATUS_TIMEOUT_MS = 10000;
 const BUSY = new Set(["queued", "spec_ready", "executing", "evaluating", "rework"]);
 const TERMINAL = new Set(["completed", "failed", "dead_letter"]);
 const DEFAULT_EMPLOYEES = [
@@ -122,6 +123,8 @@ let state = {
   feedbackSummary: null, evolutionSummary: null, tasks: [], initiatives: [],
   showAllMessages: false, teamExpanded: false,
 };
+let courseStatusController = null;
+let courseStatusRequestId = 0;
 
 function esc(v) {
   return String(v ?? "").replace(/[&<>"']/g, (c) => ({
@@ -1515,9 +1518,15 @@ function renderDashboard() {
   const project = state.projects.find((item) => item.id === currentProjectId()) || state.projects[0];
   $("#dashboard-project").textContent = project ? project.name : "尚未选择工作区";
   const course = state.courseStatus || {};
-  $("#dashboard-course").textContent = course.course_ready
-    ? `L01–L${String(course.lesson_count || 16).padStart(2, "0")} 跟跑就绪`
-    : (course.contract_valid ? "课程合同有效 · 基线待补" : "课程合同待修复");
+  if (course.loading) {
+    $("#dashboard-course").textContent = "课程状态检查中…";
+  } else if (course.error) {
+    $("#dashboard-course").textContent = "课程状态不可用 · 刷新重试";
+  } else {
+    $("#dashboard-course").textContent = course.course_ready
+      ? `L01–L${String(course.lesson_count || 16).padStart(2, "0")} 跟跑就绪`
+      : (course.contract_valid ? "课程合同有效 · 基线待补" : "课程合同待修复");
+  }
 
   const counts = workbenchStatusCounts();
   $("#metric-active").textContent = counts.active;
@@ -1857,8 +1866,41 @@ function exportWorkbenchSnapshot() {
   toast("工作台证据快照已导出");
 }
 
+async function loadCourseStatus() {
+  const requestId = ++courseStatusRequestId;
+  if (courseStatusController) courseStatusController.abort();
+  const controller = new AbortController();
+  courseStatusController = controller;
+  state.courseStatus = {
+    loading: true, course_ready: false, contract_valid: null, checked_at: null,
+  };
+  renderDashboard();
+  const timeout = window.setTimeout(() => controller.abort(), COURSE_STATUS_TIMEOUT_MS);
+  try {
+    const result = await api("/api/v1/course/status", { signal: controller.signal });
+    if (requestId !== courseStatusRequestId) return;
+    state.courseStatus = { ...result, loading: false, error: null };
+  } catch (err) {
+    if (requestId !== courseStatusRequestId) return;
+    state.courseStatus = {
+      loading: false,
+      course_ready: false,
+      contract_valid: null,
+      checked_at: null,
+      error: err && err.name === "AbortError" ? "课程状态检查超时" : (err.message || "课程状态请求失败"),
+    };
+  } finally {
+    window.clearTimeout(timeout);
+    if (requestId === courseStatusRequestId) {
+      courseStatusController = null;
+      renderDashboard();
+    }
+  }
+}
+
 async function loadShell() {
-  const [health, projects, sessions, plugins, profiles, tools, capabilities, deliveryViews, employees, courseStatus,
+  void loadCourseStatus();
+  const [health, projects, sessions, plugins, profiles, tools, capabilities, deliveryViews, employees,
     pluginRuntime, pluginEvents, feedbackSummary, evolutionSummary, tasks, initiatives] = await Promise.all([
     api("/api/v1/health"),
     api("/api/v1/projects"),
@@ -1869,7 +1911,6 @@ async function loadShell() {
     api("/api/v1/capabilities"),
     api("/api/v1/delivery/views?limit=200").catch(() => ({ items: [] })),
     api("/api/v1/employees").catch(() => ({ items: DEFAULT_EMPLOYEES })),
-    api("/api/v1/course/status").catch(() => ({ course_ready: false })),
     api("/api/v1/profiles/PROFILE-DEFAULT/runtime").catch(() => null),
     api("/api/v1/plugin-events?profile_id=PROFILE-DEFAULT&limit=20").catch(() => ({ items: [] })),
     api("/api/v1/feedback").catch(() => ({ total: 0, items: [] })),
@@ -1884,7 +1925,6 @@ async function loadShell() {
   state.tools = tools.items || [];
   state.capabilities = capabilities;
   state.health = health;
-  state.courseStatus = courseStatus;
   state.pluginRuntime = pluginRuntime;
   state.pluginEvents = pluginEvents.items || [];
   state.feedbackSummary = feedbackSummary;

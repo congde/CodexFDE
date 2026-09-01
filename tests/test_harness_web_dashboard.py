@@ -49,6 +49,7 @@ class HarnessWebDashboardTests(unittest.TestCase):
 
     def test_dashboard_reads_real_delivery_and_runtime_evidence(self) -> None:
         script = (ROOT / "harness_web" / "app.js").read_text(encoding="utf-8")
+        server = (ROOT / "workbench" / "platform_server.py").read_text(encoding="utf-8")
 
         for endpoint in (
             "/api/v1/course/status",
@@ -61,6 +62,11 @@ class HarnessWebDashboardTests(unittest.TestCase):
             self.assertIn(endpoint, script)
         self.assertIn("harness.workbench-snapshot/v1", script)
         self.assertIn("不包含密钥和运行数据库", script)
+        self.assertIn("课程状态检查中", script)
+        self.assertIn("AbortController", script)
+        self.assertIn("courseStatusRequestId", script)
+        self.assertNotIn('.catch(() => ({ course_ready: false }))', script)
+        self.assertIn("BrokenPipeError", server)
 
     def test_delivery_workspace_is_action_first_and_progressively_disclosed(self) -> None:
         html = (ROOT / "harness_web" / "index.html").read_text(encoding="utf-8")

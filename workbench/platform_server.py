@@ -34,7 +34,12 @@ def make_handler(api: HarnessPlatformAPI):
             self.send_response(status)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Content-Length", str(len(data)))
-            self._security_headers(); self.end_headers(); self.wfile.write(data)
+            self._security_headers(); self.end_headers()
+            try:
+                self.wfile.write(data)
+            except (BrokenPipeError, ConnectionResetError):
+                # 浏览器超时或刷新后连接可能已关闭；响应已经失去消费者，无需留下线程异常。
+                return
 
         def _body(self) -> dict:
             length = int(self.headers.get("Content-Length", "0"))
@@ -61,7 +66,11 @@ def make_handler(api: HarnessPlatformAPI):
             self.send_header("Content-Type", mimetypes.guess_type(target)[0] or "application/octet-stream")
             self.send_header("Content-Length", str(len(data)))
             self.send_header("Cache-Control", "no-cache" if target.name == "index.html" else "public, max-age=3600")
-            self._security_headers(); self.end_headers(); self.wfile.write(data)
+            self._security_headers(); self.end_headers()
+            try:
+                self.wfile.write(data)
+            except (BrokenPipeError, ConnectionResetError):
+                return
 
         def do_POST(self) -> None:  # noqa: N802
             try: body = self._body()

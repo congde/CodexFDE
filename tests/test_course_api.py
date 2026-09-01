@@ -17,6 +17,7 @@ class CourseAPITests(unittest.TestCase):
             self.assertEqual(200, status.status)
             self.assertTrue(status.body["contract_valid"])
             self.assertIn("course_ready", status.body)
+            self.assertIn("checked_at", status.body)
             self.assertEqual(
                 status.body["course_ready"],
                 not status.body.get("missing_baseline_refs") and not status.body.get("baseline_errors"),

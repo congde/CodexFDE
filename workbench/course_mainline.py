@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import subprocess
 from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
+from functools import lru_cache
 from pathlib import Path
 from typing import Callable, Iterable
 
@@ -251,6 +253,60 @@ def _git_is_ancestor(root: Path, older: str, newer: str) -> bool:
     return result.returncode == 0
 
 
+def _git_ref_commits(root: Path, refs: tuple[str, ...]) -> dict[str, str]:
+    """Resolve every annotated/lightweight course tag with one Git process."""
+    revisions = [f"refs/tags/{ref}^{{commit}}" for ref in refs]
+    result = subprocess.run(
+        ["git", "cat-file", "--batch-check=%(objectname) %(objecttype)"],
+        cwd=root, check=False, capture_output=True, text=True,
+        input="\n".join(revisions) + "\n",
+    )
+    if result.returncode != 0:
+        return {}
+    commits: dict[str, str] = {}
+    for ref, line in zip(refs, result.stdout.splitlines()):
+        parts = line.strip().split()
+        if len(parts) == 2 and parts[1] == "commit":
+            commits[ref] = parts[0]
+    return commits
+
+
+@lru_cache(maxsize=8)
+def _git_ancestor_pairs(root: str, commits: tuple[str, ...]) -> tuple[bool, ...]:
+    """Cache immutable commit ancestry, while callers still refresh current refs."""
+    if len(commits) < 2:
+        return ()
+    result = subprocess.run(
+        ["git", "rev-list", "--parents", commits[-1]],
+        cwd=Path(root), check=False, capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        return tuple(False for _ in commits[1:])
+    parents: dict[str, tuple[str, ...]] = {}
+    for line in result.stdout.splitlines():
+        parts = line.split()
+        if parts:
+            parents[parts[0]] = tuple(parts[1:])
+
+    def is_ancestor(older: str, newer: str) -> bool:
+        if older == newer:
+            return True
+        pending = [newer]
+        visited: set[str] = set()
+        while pending:
+            current = pending.pop()
+            if current in visited:
+                continue
+            visited.add(current)
+            for parent in parents.get(current, ()):
+                if parent == older:
+                    return True
+                pending.append(parent)
+        return False
+
+    return tuple(is_ancestor(older, newer) for older, newer in zip(commits, commits[1:]))
+
+
 def lesson_baseline_status(root: str | Path, number: int, *,
                            revision_resolver: Callable[[Path, str], str | None] | None = None) -> dict:
     root_path = Path(root).resolve()
@@ -309,18 +365,25 @@ def validate_mainline(root: str | Path = ".", *,
         if missing:
             errors.append(f"L{item.number:02d} 引用了不存在的 Eval：{', '.join(missing)}")
 
-    checker = ref_checker or _git_ref_exists
-    missing_refs = [item.baseline_ref for item in LESSONS if not checker(root_path, item.baseline_ref)]
     baseline_errors: list[str] = []
-    baseline_commits: dict[str, str] = {}
+    baseline_refs = tuple(item.baseline_ref for item in LESSONS)
+    use_batch_git = ref_checker is None and commit_resolver is None and ancestor_checker is None
+    if use_batch_git:
+        baseline_commits = _git_ref_commits(root_path, baseline_refs)
+        missing_refs = [ref for ref in baseline_refs if ref not in baseline_commits]
+    else:
+        checker = ref_checker or _git_ref_exists
+        missing_refs = [ref for ref in baseline_refs if not checker(root_path, ref)]
+        baseline_commits: dict[str, str] = {}
+        if not missing_refs:
+            resolver = commit_resolver or _git_ref_commit
+            for ref in baseline_refs:
+                commit = resolver(root_path, ref)
+                if not commit:
+                    baseline_errors.append(f"{ref} 无法解析为提交")
+                else:
+                    baseline_commits[ref] = commit
     if not missing_refs:
-        resolver = commit_resolver or _git_ref_commit
-        for item in LESSONS:
-            commit = resolver(root_path, item.baseline_ref)
-            if not commit:
-                baseline_errors.append(f"{item.baseline_ref} 无法解析为提交")
-            else:
-                baseline_commits[item.baseline_ref] = commit
         reverse: dict[str, list[str]] = {}
         for ref, commit in baseline_commits.items():
             reverse.setdefault(commit, []).append(ref)
@@ -328,11 +391,17 @@ def validate_mainline(root: str | Path = ".", *,
         for refs in duplicate_groups:
             baseline_errors.append(f"多个课次标签指向同一提交：{', '.join(refs)}")
         if not baseline_errors:
-            is_ancestor = ancestor_checker or _git_is_ancestor
-            for previous, current in zip(LESSONS, LESSONS[1:]):
-                older = baseline_commits[previous.baseline_ref]
-                newer = baseline_commits[current.baseline_ref]
-                if not is_ancestor(root_path, older, newer):
+            ordered_commits = tuple(baseline_commits[ref] for ref in baseline_refs)
+            if use_batch_git:
+                ancestry = _git_ancestor_pairs(str(root_path), ordered_commits)
+            else:
+                is_ancestor = ancestor_checker or _git_is_ancestor
+                ancestry = tuple(
+                    is_ancestor(root_path, older, newer)
+                    for older, newer in zip(ordered_commits, ordered_commits[1:])
+                )
+            for previous, current, valid in zip(LESSONS, LESSONS[1:], ancestry):
+                if not valid:
                     baseline_errors.append(
                         f"基线历史不连续：{previous.baseline_ref} 不是 {current.baseline_ref} 的祖先"
                     )
@@ -344,6 +413,7 @@ def validate_mainline(root: str | Path = ".", *,
         warnings.append("逐讲标签存在重复提交或非线性历史，不能证明产品状态逐讲推进")
     return {
         "schema_version": "1.0",
+        "checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "contract_valid": not errors,
         "course_ready": not errors and not missing_refs and not baseline_errors,
         "lesson_count": len(LESSONS),

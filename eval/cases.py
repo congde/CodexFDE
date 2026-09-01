@@ -698,7 +698,7 @@ def web_api_and_persistence_projection_agree() -> str:
         assert 'href="http://127.0.0.1:8010"' in erp_shell
         harness_source = (Path(__file__).resolve().parent.parent / "harness_web" / "app.js").read_text(encoding="utf-8")
         assert 'api("/api/v1/delivery/views?limit=200")' in harness_source
-        assert 'api("/api/v1/course/status")' in harness_source
+        assert 'api("/api/v1/course/status"' in harness_source
         return "课程 Web 与可选 Harness 复用同一 DeliveryView；Task API/SQLite 和 FlowERP API/SQLite 状态一致"
     finally:
         tmp.cleanup()
