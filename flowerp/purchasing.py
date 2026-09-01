@@ -266,14 +266,15 @@ class PurchasingService:
                     move_id = self._id("MOV")
                     try:
                         conn.execute(
-                            "INSERT INTO stock_moves(id,organization_id,event_key,product_id,destination_location_id,lot_id,quantity,unit_cost_cents,move_type,reference_type,reference_id,created_by) VALUES(?,?,?,?,?,?,?,?,?,'goods_receipt',?,?)",
-                            (move_id, principal.organization_id, f"{event_key}:{line['id']}", line["product_id"], receipt["location_id"], line["lot_id"], line["accepted_quantity"], line["unit_price_cents"], "receipt", receipt_id, principal.user_id),
+                            "INSERT INTO stock_moves(id,organization_id,event_key,product_id,destination_location_id,lot_id,quantity,unit_cost_cents,move_type,reference_type,reference_id,occurred_at,created_by) VALUES(?,?,?,?,?,?,?,?,?,'goods_receipt',?,?,?)",
+                            (move_id, principal.organization_id, f"{event_key}:{line['id']}", line["product_id"], receipt["location_id"], line["lot_id"], line["accepted_quantity"], line["unit_price_cents"], "receipt", receipt_id, receipt["receipt_date"], principal.user_id),
                         )
                     except sqlite3.IntegrityError as exc:
                         raise Conflict("该收货事件已经处理") from exc
                     valued = self.valuation.receive(
                         conn, principal.organization_id, move_id, line["product_id"], receipt["location_id"],
                         line["lot_id"], line["accepted_quantity"], line["unit_price_cents"], "receipt",
+                        receipt["receipt_date"],
                     )
                     if valued["value_cents"]:
                         self.ledger.post(

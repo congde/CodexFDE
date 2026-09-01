@@ -671,6 +671,13 @@ class AccountingAndValuationTests(ProductionFixture):
             receipt_date="2026-08-11",
         )
         self.purchasing.post_receipt(self.admin, receipt["id"], "close-grni")
+        move_dates = self.store.row(
+            "SELECT date(m.occurred_at) AS move_date,date(v.occurred_at) AS valuation_date "
+            "FROM stock_moves m JOIN inventory_valuation_layers v ON v.stock_move_id=m.id "
+            "WHERE m.reference_type='goods_receipt' AND m.reference_id=?",
+            (receipt["id"],),
+        )
+        self.assertEqual({"move_date": "2026-08-11", "valuation_date": "2026-08-11"}, move_dates)
         period = self.finance.close_period(self.admin, 2026, 8)
         self.assertEqual("closed", period["status"])
 

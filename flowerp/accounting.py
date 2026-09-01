@@ -302,7 +302,8 @@ class InventoryValuationService:
 
     def receive(self, conn: sqlite3.Connection, organization_id: str, stock_move_id: str,
                 product_id: str, location_id: str, lot_id: str, quantity: int,
-                unit_cost_cents: int, layer_type: str = "receipt") -> dict:
+                unit_cost_cents: int, layer_type: str = "receipt",
+                occurred_at: str | None = None) -> dict:
         if quantity <= 0: raise ValidationError("估值入库数量必须大于 0")
         if unit_cost_cents <= 0:
             product = conn.execute("SELECT standard_cost_cents FROM product_master WHERE id=?", (product_id,)).fetchone()
@@ -310,10 +311,10 @@ class InventoryValuationService:
         if unit_cost_cents < 0: raise ValidationError("估值成本不能为负")
         value = quantity * unit_cost_cents; layer_id = self._id("VAL")
         conn.execute(
-            "INSERT INTO inventory_valuation_layers(id,organization_id,product_id,location_id,lot_id,stock_move_id,layer_type,original_quantity,remaining_quantity,unit_cost_cents,original_value_cents,remaining_value_cents) "
-            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO inventory_valuation_layers(id,organization_id,product_id,location_id,lot_id,stock_move_id,layer_type,original_quantity,remaining_quantity,unit_cost_cents,original_value_cents,remaining_value_cents,occurred_at) "
+            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,COALESCE(?,CURRENT_TIMESTAMP))",
             (layer_id, organization_id, product_id, location_id, lot_id, stock_move_id, layer_type,
-             quantity, quantity, unit_cost_cents, value, value),
+             quantity, quantity, unit_cost_cents, value, value, occurred_at),
         )
         conn.execute("UPDATE stock_moves SET unit_cost_cents=?,total_cost_cents=?,valuation_status='valued' WHERE id=?",
                      (unit_cost_cents, value, stock_move_id))
