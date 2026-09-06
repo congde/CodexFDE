@@ -1,26 +1,40 @@
 <!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>个人研发工作台</title><link rel="stylesheet" href="./styles.css"></head>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>个人研发工作台 · 项目交付</title><link rel="stylesheet" href="./styles.css"><link rel="stylesheet" href="./workspace-redesign.css"></head>
 <body>
 <aside class="sidebar">
-<a class="brand" href="#overview"><span class="brand-mark">✦</span><span>AI 研发工作台<small>WORKBENCH / FlowERP</small></span></a>
-<div class="workspace"><span class="project-icon">F</span><div><small>当前客户项目</small><strong>FlowERP</strong></div><span class="local-tag">本地</span></div>
-<a class="nav-item" href="./daily.html">＋　日常研发 <small>真实需求 · 无需讲次</small></a>
-<nav aria-label="工作台导航"><button class="nav-item active" data-view="overview">◫　工作台总览</button><button class="nav-item" id="new-decision" data-view="decision">◇　事项与决策 <small>新需求</small></button><button class="nav-item" data-view="delivery">◇　交付与验收 <span id="review-count" class="count">0</span></button><a class="nav-item" id="erp-link" href="http://127.0.0.1:8000" target="_blank" rel="noopener">↗　打开 FlowERP <small>客户项目</small></a></nav>
+<a class="brand" href="#overview"><span class="brand-mark">✦</span><span>AI 研发工作台<small>PERSONAL WORKBENCH</small></span></a>
+<div class="workspace"><span class="project-icon">W</span><div><small>个人工作空间</small><strong>本地项目交付</strong></div><span class="local-tag">本机</span></div>
+<nav aria-label="工作台导航"><button class="nav-item active" data-view="overview">◫　项目交付</button><button class="nav-item" id="new-decision" data-view="decision">◇　事项与决策 <small>新需求</small></button><button class="nav-item" data-view="delivery">◇　交付记录 <span id="review-count" class="count">0</span></button><button class="nav-item" data-view="course">▤　课程与练习</button><a class="nav-item" id="erp-link" href="http://127.0.0.1:8000" target="_blank" rel="noopener">↗　打开 FlowERP <small>客户项目</small></a></nav>
 <div class="sidebar-bottom"><label for="task-actor">你的署名</label><input id="task-actor" maxlength="80" placeholder="填写姓名或课堂昵称" required><p id="identity-status" role="status">先填写署名，再提交需求或作出验收决定。</p><details><summary>关于当前工作台</summary><p id="thesis">通过工作台组织人与 Codex 协同。</p><p id="harness-note">可选 Harness :8010 不是大纲通过项。</p><p>工作台是组织写代码的主体，Codex 执行已授权的修改。</p></details></div>
 </aside>
 <div class="workspace-main">
-<header class="page-header"><div><div class="breadcrumb">个人研发工作台 <span>/</span> <span id="page-section">总览</span></div><h1 id="page-title">把每一次交付，做得有据可查。</h1></div><div class="header-actions"><button class="secondary" id="refresh-tasks">↻ 刷新</button><button class="primary" id="new-task">＋ 新建任务</button></div></header>
+<header class="page-header"><div><div class="breadcrumb">个人研发工作台 <span>/</span> <span id="page-section">项目交付</span></div><h1 id="page-title">从目标，到可验收的结果。</h1></div><div class="header-actions"><button class="secondary" id="refresh-tasks">↻ 刷新</button><button class="primary" id="new-task">＋ 新建交付事项</button></div></header>
 <main><div class="data-strip"><span class="local-dot"></span><span id="data-status" role="status" aria-live="polite">正在连接本地工作台…</span></div>
 <p id="mock-notice" class="next-action" hidden>课程展示数据：带 [Mock课程演示] 的事项、需求和审核角色为模拟，仅用于演示流程，不代表学生作业、真实人审或课程达成。Eval 报告来自参考仓库实际复验。</p>
 <section id="execution-recovery" class="contract-card" hidden><h2>找回上次交付</h2><p id="execution-recovery-status" role="status">上次授权的结果尚未核对。先查看原记录，避免重复提交。</p><button id="resume-execution" class="secondary">查看上次执行进度</button></section>
+<div id="view-overview">
+<div class="home-toolbar"><p>需要你决定的事，与工作台正在推进的事。</p><label>项目<select id="home-project"><option value="all">全部项目</option></select></label></div>
+<section class="delivery-stats" aria-label="真实事项进展">
+<button data-home-filter="attention"><span>需要你决定</span><strong id="home-attention">—</strong><small>回答问题 · 确认方案 · 验收</small></button>
+<button data-home-filter="running"><span>工作台处理中</span><strong id="home-running">—</strong><small>调研 · 排队 · 执行与复验</small></button>
+<button data-home-filter="outcome"><span>进入交付与效果阶段</span><strong id="home-outcome">—</strong><small>已集成 · 已发布 · 已回收</small></button>
+</section>
+<div class="home-columns"><section class="home-inbox"><div class="section-top"><div><span class="eyebrow">NEXT DECISION</span><h2 id="home-list-title">下一步，等你来定</h2></div><button id="home-all" class="text-button">查看全部事项</button></div><p id="home-status" class="hint" role="status"></p><div id="home-items"></div></section>
+<aside class="home-rail"><section class="workbench-contract"><span class="eyebrow">这次交付，怎样分工</span><h3>你把握方向，<br>工作台组织执行。</h3><dl><div><dt>你来决定</dt><dd>目标与范围、授权、最终验收。</dd></div><div><dt>工作台来组织</dt><dd>把已确认的需求交给 Codex，运行检查，把结果带回原事项。</dd></div><div><dt>每一轮留下</dt><dd>需求版本、实际改动、检查结果和你的决定。</dd></div></dl></section><section class="home-outcomes"><span class="eyebrow">交付之后</span><h3>改了代码，也要看效果。</h3><p id="home-outcome-note">正在读取实际发布与反馈…</p><button class="text-button" id="home-show-outcomes">查看交付与效果 →</button></section></aside></div>
+<div class="home-footer"><label><input type="checkbox" id="home-include-mock"> 包含课程演示事项</label><p id="home-mock-note"></p><button class="text-button" data-view="course">进入课程与练习 →</button></div>
+</div>
 <div id="view-decision" hidden>
-<section class="decision-intro"><div><span class="eyebrow">先决定值得做，再组织交付</span><h2>事项与决策</h2><p class="muted">保留客户原话，说明问题与验收标准。决定会留下署名和理由。</p></div><button class="primary" id="capture-initiative">＋ 记录新事项</button></section>
+<section class="decision-intro"><div><span class="eyebrow">DELIVERY WORKSPACE</span><h2>事项与决策</h2><p class="muted">一个事项，贯穿目标、执行、验收和效果回收。</p></div><button class="primary" id="capture-initiative">＋ 记录新事项</button></section>
+<details id="project-registration"><summary>管理项目 · 登记本地项目</summary><p>项目需要独立 Git 工作区。测试从候选目录运行，输出包含 summary.decision（pass/block）的 JSON；报告路径可用 {report_path}，候选目录可用 {workspace}。</p>
+<label>项目名称<input id="project-name"></label><label>源码目录<input id="project-root"></label><label>测试命令参数（JSON 数组，首项是项目运行环境的绝对路径）<textarea id="project-eval" placeholder='["D:/project/.venv/Scripts/python.exe", "check.py"]'></textarea></label><button type="button" id="project-register">具名登记项目</button><p id="project-status" role="status"></p></details>
 <p id="initiative-status" class="hint" role="status"></p>
-<div class="initiative-layout"><section><h3>事项记录</h3><div id="initiative-list"></div></section><section id="initiative-editor" hidden>
-<h3 id="initiative-title">新事项</h3><details id="initiative-contract" open><summary>需求内容与已有证据</summary><form id="initiative-form">
-<label>事项名称<input id="init-title" maxlength="120" required></label>
-<label>客户原话<textarea id="init-raw" rows="2" maxlength="1000" required></textarea></label>
-<label>来源<input id="init-source" maxlength="200" placeholder="例如：仓库同事的现场反馈" required></label>
+<div class="initiative-layout"><section id="initiative-directory"><h3>选择一项交付，继续推进</h3><div id="initiative-list"></div></section><section id="initiative-editor" hidden>
+<button class="text-button" id="back-to-initiatives">← 返回事项列表</button><h2 id="initiative-title">新事项</h2><details id="initiative-contract" open><summary>原始需求与项目目标</summary><form id="initiative-form"><label>所属项目<select id="init-project"></select></label>
+<label>这次想解决什么<input id="init-title" maxlength="120" placeholder="例如：优化 FlowERP 财务报销" required></label>
+<label>描述遇到的问题<textarea id="init-raw" rows="3" maxlength="1000" placeholder="谁在什么场景遇到困难？现在怎样处理，希望变成什么样？"></textarea></label>
+<details id="initiative-extra"><summary>补充背景与已有判断（可以稍后与 Codex 一起澄清）</summary>
+<label>效果指标与目标<input id="init-metric" maxlength="1000" placeholder="例如：取消订单后库存释放正确率达到 100%；观察一周"></label>
+<label>来源<input id="init-source" maxlength="200" placeholder="例如：仓库同事的现场反馈"></label>
 <label>具体问题<textarea id="init-problem" rows="2" maxlength="1000"></textarea></label>
 <label>期望结果<textarea id="init-goal" rows="2" maxlength="1000"></textarea></label>
 <label>本次不做<textarea id="init-nongoals" rows="2" maxlength="600" placeholder="每行一项"></textarea></label>
@@ -28,20 +42,53 @@
 <label>已有证据<textarea id="init-evidence" rows="2" maxlength="1000" placeholder="保留实际观察或反馈，每行一条"></textarea></label>
 <label>影响范围<select id="init-area"><option value="">局部界面或文案</option value="inventory">库存数量与可用量</option><option value="money">金额或财务</option><option value="order">订单</option><option value="purchase">采购</option><option value="auth">权限或安全</option></select></label>
 <label>验收负责人<input id="init-reviewer" maxlength="80" placeholder="涉及库存、金额等关键规则时必须填写"></label>
-<button id="save-initiative" class="primary" type="submit">保存事项</button></form></details>
-<section id="initiative-decision" hidden><hr><h3>留下你的决定</h3><p id="initiative-readiness" class="hint"></p><label>决定<select id="init-decision"><option value="build">进入交付准备</option><option value="defer">暂缓，等待条件</option><option value="reject">不做</option></select></label><label>决定理由<textarea id="init-rationale" rows="2" maxlength="1000"></textarea></label><label>再评估条件（暂缓时必填）<input id="init-trigger" maxlength="300"></label><button id="decide-initiative" class="primary" type="button">具名保存决定</button><p class="hint">进入交付准备不会自动执行代码；仍需核对课程任务范围并单独授权。</p></section>
-<div id="initiative-saved-decision" hidden><hr><h3>已保存的决定</h3><p id="initiative-verdict" class="spec-copy"></p><button id="initiative-to-delivery" class="primary" hidden>核对课程交付方案</button></div>
+ </details><button id="save-initiative" class="primary" type="submit">保存事项</button></form></details>
+<section id="initiative-work" hidden aria-label="事项持续交付">
+<div class="iw-context"><p id="iw-project"></p><span id="iw-stage" role="status"></span></div>
+<ol id="iw-stage-track" class="stage-track" aria-label="当前交付阶段"></ol>
+<nav class="iw-tabs" aria-label="事项工作区"><button data-iw-pane="action">推进交付</button><button data-iw-pane="plan">方案与范围</button><button data-iw-pane="result">结果与证据</button></nav>
+<p id="iw-error" role="alert"></p>
+<div id="iw-pane-action">
+<section class="next-decision"><span class="eyebrow" id="iw-next-owner">下一步</span><h3 id="iw-next-title"></h3><p id="iw-next-description"></p><ol id="iw-questions"></ol><p id="iw-live-status" role="status" aria-live="polite"></p><div class="activity-line" id="iw-live-output"></div><button id="iw-primary-next" class="primary" hidden>查看下一步</button></section>
+<details id="iw-findings"><summary>本轮调研结论</summary><p id="iw-latest-answer"></p></details>
+<div class="iw-composer"><label for="iw-message" id="iw-message-label">补充需求或回答问题</label><textarea id="iw-message" rows="4" maxlength="10000" placeholder="说清你想解决的问题，或在这里回答上面的问题。"></textarea><div class="composer-actions"><button id="iw-discuss" class="primary" type="button">让 Codex 开始调研</button><button id="iw-cancel" class="secondary" type="button" hidden>停止本轮</button><span id="iw-composer-hint" class="hint"></span></div></div>
+<details id="iw-discussion-history"><summary>讨论记录 <span id="iw-message-count"></span></summary><div id="iw-messages" aria-label="事项讨论记录"></div></details>
+</div>
+<div id="iw-pane-plan" hidden><p id="iw-plan-empty" class="workspace-empty">需求还在澄清。形成方案后，你将在这里确认目标、范围与验收条件。</p>
+<section id="iw-proposal" hidden><span class="eyebrow">01 / 产品需求</span><h3>这次要交付什么</h3><pre id="iw-prd"></pre><label>确认效果指标与目标<input id="iw-prd-metric" maxlength="1000"></label><button id="iw-confirm-prd" type="button">确认 PRD</button><p id="iw-goal"></p><h4>怎样验收</h4><ul id="iw-acceptance"></ul><h4>本次不做</h4><ul id="iw-nongoals"></ul><hr><span class="eyebrow">02 / 技术方案</span><h3>工作台准备怎样实现</h3><pre id="iw-technical"></pre><h4>工作台安排</h4><ol id="iw-steps"></ol>
+<details><summary>核对源码依据与 Codex 建议的修改范围</summary><pre id="iw-scope"></pre></details>
+<label for="iw-reviewer">验收负责人</label><input id="iw-reviewer" maxlength="80" placeholder="填写实际验收人的署名">
+<button id="iw-confirm" type="button" class="primary">确认技术方案与验收负责人</button>
+<button id="iw-execute" type="button" class="primary" hidden>授权工作台执行本轮方案</button></section>
+</div><div id="iw-pane-result" hidden><p id="iw-result-empty" class="workspace-empty">还没有执行结果。授权执行后，实际改动、检查与验收记录会出现在这里。</p><section id="iw-result" hidden><h3>本轮成果</h3><p id="iw-result-summary"></p><a id="iw-patch" hidden>下载本轮补丁</a>
+<button id="iw-preview" type="button">打开候选成果</button><p id="iw-preview-status"></p><a id="iw-preview-link" target="_blank" rel="noopener" hidden>在独立窗口打开客户项目候选</a><iframe id="iw-preview-frame" title="本事项的 FlowERP 候选成果" hidden></iframe>
+<details><summary>实际改动与检查记录</summary><pre id="iw-diff"></pre><pre id="iw-checks"></pre></details>
+<label for="iw-note">验收依据</label><textarea id="iw-note" rows="2" placeholder="说明核对了什么，以及结果是否满足本期需求"></textarea>
+<button id="iw-accept" class="primary" type="button">接受本轮候选</button>
+<p id="iw-integration-help" hidden>确认集成将把已验收的累计改动写回当前项目源码。工作台会核对起点并备份原文件；不会自动提交 Git 或部署。</p>
+<button id="iw-integrate" class="primary" type="button" hidden>确认集成到项目源码</button></section>
+<section id="iw-delivery" hidden><h3>实际发布与效果回收</h3><p id="iw-observation-status"></p>
+<label>实际发布版本<input id="iw-release-version"></label><label>发布环境<input id="iw-release-environment"></label><label>发布证据<textarea id="iw-release-evidence"></textarea></label><button id="iw-release" type="button">登记实际发布</button>
+<div id="iw-outcome-form" hidden><label>观察周期<input id="iw-outcome-period"></label><label>目标指标<input id="iw-outcome-target"></label><label>实际结果<textarea id="iw-outcome-actual"></textarea></label><label>反馈与观察<textarea id="iw-outcome-observation"></textarea></label><label>真实证据<textarea id="iw-outcome-evidence"></textarea></label><label>结论<textarea id="iw-outcome-conclusion"></textarea></label><button id="iw-outcome" type="button">保存效果回收</button></div>
+<label>下一轮要改进的业务问题<textarea id="iw-next"></textarea></label><button id="iw-reopen" type="button">由反馈开启下一轮</button></section>
+<details><summary>需求版本、确认与发布证据</summary><pre id="iw-documents"></pre></details>
+<details><summary>工作台怎样调用 Codex</summary><pre id="iw-invocation"></pre></details>
+<details><summary>本轮执行进展</summary><pre id="iw-progress"></pre></details>
+<details><summary>此前各轮交付</summary><div id="iw-history"></div></details>
+</div></section>
+<section id="initiative-decision" hidden><hr><h3>留下你的决定</h3><p id="initiative-readiness" class="hint"></p><label>决定<select id="init-decision"><option value="build">进入交付准备</option><option value="defer">暂缓，等待条件</option><option value="reject">不做</option></select></label><label>决定理由<textarea id="init-rationale" rows="2" maxlength="1000"></textarea></label><label>再评估条件（暂缓时必填）<input id="init-trigger" maxlength="300"></label><button id="decide-initiative" class="primary" type="button">具名保存决定</button><p class="hint">进入交付准备不会自动执行代码；仍需在本事项内确认调研方案并单独授权。</p></section>
+<div id="initiative-saved-decision" hidden><hr><h3>已保存的决定</h3><p id="initiative-verdict" class="spec-copy"></p><button id="initiative-to-delivery" class="primary" hidden>在本事项中继续推进</button></div>
 </section></div></div>
-<div id="view-overview">
+<div id="view-course" hidden>
 <section class="first-steps" aria-labelledby="first-steps-title">
-<div class="section-top"><div><span class="eyebrow">第一次来到这里</span><h2 id="first-steps-title">先选对你现在这一步</h2></div><button class="secondary" id="focus-identity">填写我的署名</button></div>
+<div class="section-top"><div><span class="eyebrow">课程跟跑</span><h2 id="first-steps-title">课程也在这个工作台中组织交付</h2></div><button class="secondary" id="focus-identity">填写我的署名</button></div>
 <p class="muted">这里是你的研发工作台；FlowERP 是你要交付的客户项目。打开参考工作台，不代表已经完成本讲作业。</p>
-<details id="first-steps-guide" open><summary>查看开始指引</summary><div class="first-steps-grid">
+<details id="first-steps-guide"><summary>查看开始指引</summary><div class="first-steps-grid">
 <article><span class="pill">L01～L03</span><h3>先看终局，再亲手搭建</h3><p>按本讲讲义，在 Codex 中建立工作台规则和最小能力。保留你自己的实现、失败与修订记录。</p><p class="hint">这时没有交付任务是正常的。不要为了填满列表跳到 L04，也不要把参考代码当作自己的成果。</p><button class="secondary" id="read-current-contract">查看本讲范围与验收</button></article>
 <article><span class="pill">L04～L16</span><h3>通过工作台组织交付</h3><p>填写署名后开始一项交付：已有代码选“复验已有成果”；需要 AI 修改时选“让 Codex 实现”，核对范围后再授权。</p><p class="hint">L04 先完成工作台的独立验收。自动检查通过后，仍由具名的人核对证据并终审。</p><button class="secondary" id="start-guided-delivery">我已到 L04 或后续讲次</button></article>
 </div></details></section>
 
-<section class="hero"><div><span class="eyebrow">从一个明确的需求开始</span><h2>你定方向，<br>让交付留下证据。</h2><p>整理需求、检查结果、作出决定。<br>FlowERP 是客户项目案例；工作台帮助你组织交付。</p><button id="new-task-hero" class="primary">L04 起：开始交付　↗</button></div><div class="hero-map"><div><span>01</span><b>说清要做什么</b><small>目标与范围</small></div><i>↓</i><div><span>02</span><b>检查实际结果</b><small>修改与验收证据</small></div><i>↓</i><div><span>03</span><b>由你确认交付</b><small>接受，或带理由打回</small></div></div></section>
+<section class="hero"><div><span class="eyebrow">从一个明确的需求开始</span><h2>你定方向，<br>让交付留下证据。</h2><p>整理需求、检查结果、作出决定。<br>FlowERP 是客户项目案例；工作台帮助你组织交付。</p><button id="new-task-hero" class="primary">提出事项，与 Codex 一起推进　↗</button></div><div class="hero-map"><div><span>01</span><b>说清要做什么</b><small>目标与范围</small></div><i>↓</i><div><span>02</span><b>检查实际结果</b><small>修改与验收证据</small></div><i>↓</i><div><span>03</span><b>由你确认交付</b><small>接受，或带理由打回</small></div></div></section>
 <div class="metrics"><section><span>当前任务</span><strong id="metric-total">—</strong><small>最近二十项交付记录</small></section><section><span>等待你验收</span><strong id="metric-review">—</strong><small>检查通过，仍需你的判断</small></section><section><span>需要返工</span><strong id="metric-rework">—</strong><small>带着证据继续改进</small></section></div>
 <div class="overview-grid"><section id="contract-card"><div class="section-top"><h2>本讲合同</h2><span id="stage-band" class="pill">读取中</span></div><h3 id="lesson-title">正在读取课程合同</h3><p id="construction-stage" class="muted"></p><p id="codex-role" class="contract-role"></p><details><summary>查看范围与验收标准</summary><dl><div><dt>允许写集</dt><dd id="write-scope"></dd></div><div><dt>验收点</dt><dd id="acceptance"></dd></div><div><dt>本讲 Eval</dt><dd id="eval-contract"></dd></div></dl></details><p class="notice" id="honest-empty" hidden>工作台正在被你造出来。L01～L03 先建立最小能力，不把参考终态当作自己的成果。</p><p class="hint" id="bootstrap-state"></p></section><section id="upgrade-card"><span class="eyebrow">持续改进</span><h2>上一次工作台升级</h2><p id="upgrade-text">正在读取…</p><p class="hint">保留失败，审核反馈，再改进工作台。</p><div class="quiet-graphic">↗</div></section></div>
 </div>
@@ -60,4 +107,4 @@
 <dialog id="task-composer"><div class="section-top"><div><span class="eyebrow">NEW DELIVERY</span><h2>开始一项交付</h2></div><button class="icon-button" id="close-composer" aria-label="关闭新建任务">×</button></div><p class="muted">先选择这次要做的事，再核对范围。授权前不会开始改代码。</p><div class="mode-picker" aria-label="本次操作"><button type="button" data-mode="verify" aria-pressed="true" class="active"><b>复验已有成果</b><span>检查现有代码，保留验收记录</span></button><button type="button" data-mode="codex" id="mode-codex" aria-pressed="false" disabled><b>让 Codex 实现</b><span>核对任务范围，再授权隔离执行</span></button></div>
 <p id="mode-help" class="hint" role="status"></p><details id="execution-setup" class="notice" hidden><summary>如何开启网页执行</summary><p>在项目终端中启用网页执行模式。若工作台已经运行，先确认没有正在执行的任务，再到原终端结束该服务；保留原来的运行目录，避免丢失任务入口。</p><pre class="setup-command">.venv/Scripts/python.exe -X utf8 -m workbench.cli serve-workbench --enable-code-execution</pre><p>原服务指定过端口、运行目录或 FlowERP 地址时，重新启动须保留这些参数。随后刷新本页。若仍提示 CLI 不可用，请在同一终端检查 Codex CLI。</p><p>启用入口不会自动执行任务；每次仍须核对具体方案并授权。L04 需要已接受的工作台任务；L15/L16 需要具体需求、新增检查和起始基线。</p></details><form id="task-form"><label for="task-lesson">讲次</label><select id="task-lesson" required><option value="">选择 L04～L16</option><option value="4">L04 · 最小变更与自举换挡</option><option value="5">L05 · Eval</option><option value="6">L06 · Harness</option><option value="7">L07 · Hooks</option><option value="8">L08 · CI</option><option value="9">L09 · Repair Task</option><option value="10">L10 · Loop</option><option value="11">L11 · Subagents</option><option value="12">L12 · Graph 与人审</option><option value="13">L13 · Task API</option><option value="14">L14 · Web 状态面板</option><option value="15">L15 · 反馈闭环</option><option value="16">L16 · 冷启动答辩</option></select><div id="verify-fields"><label for="task-request">现场需求</label><textarea id="task-request" maxlength="1000" rows="5" placeholder="我希望解决什么问题？怎样算完成？哪些内容不在本次范围？" required></textarea><details><summary>关联现有采购单或库存对象（可选）</summary><label for="task-business-refs">业务对象编号</label><textarea id="task-business-refs" rows="2" placeholder="例如 PURCHASE:PUR-实际采购单编号；多个编号换行填写"></textarea><p class="hint">只保存对账线索，不会创建、审批采购单，也不表示已核实其内容。</p></details><div class="notice"><b>本次进行自动复验</b><p>校验课程合同并运行检查，等待你验收。此按钮不会调用 Codex 修改代码。</p></div><div class="submit-row composer-submit"><p id="task-submit-status" class="hint" role="status" aria-live="polite">代码执行需要单独确认范围并授权。</p><button id="task-submit" class="primary" type="submit">提交并复验</button></div></div></form>
 <section id="code-entry" hidden><div id="code-options"><hr><h3>执行本讲课程任务</h3><p class="muted">L04～L14 按本讲合同实现；L15 / L16 填写本次具体需求。下一步会展示目标、文件范围与验收要求。</p><div class="notice" id="code-bootstrap-field" hidden><label for="code-bootstrap">L04：已接受的工作台任务编号</label><input id="code-bootstrap" placeholder="TASK-…"><p>先由同伴独立复验并接受工作台，再交付库存导出。其他讲次无需填写。</p></div><details><summary>L15 / L16：本次需求的补充条件</summary><label for="code-requirement-spec">本次需求 Spec（六段式 Markdown）</label><textarea id="code-requirement-spec" rows="8" maxlength="40000" placeholder="粘贴包含来源、目标、非目标、约束、验收用例、完成定义的具体需求"></textarea><label for="code-cases">新增检查用例（逗号分隔）</label><input id="code-cases"><label for="code-baseline">本次需求起始基线</label><input id="code-baseline"><p class="hint">先保证既有合同通过，新增用例至少一项真实失败；否则不会启动代码执行。</p></details><button id="prepare-code" type="button" class="primary">查看范围与执行方案</button></div><p id="code-status" role="status"></p><div id="code-plan" hidden><h3>请核对本次授权</h3><button id="edit-code" type="button" class="primary">返回调整</button><p id="code-plan-text" style="white-space:pre-line;line-height:1.8;overflow-wrap:anywhere"></p><details><summary>核对文件范围、检查用例与起始版本</summary><pre id="code-plan-technical" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre></details><button id="authorize-code" type="button" class="primary">我已核对，授权本次隔离执行</button></div></section></dialog>
-<script src="./initiatives.js"></script><script src="./app.js"></script></body></html>
+<script src="./workspace-dashboard.js"></script><script src="./initiative_workflow.js"></script><script src="./initiatives.js"></script><script src="./app.js"></script></body></html>

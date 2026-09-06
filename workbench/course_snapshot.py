@@ -25,7 +25,7 @@ EXCLUDED_DIRS = {".git", ".venv", "__pycache__", "node_modules", ".runtime", ".h
 
 
 def _git(target: Path, *args: str) -> str:
-    result = subprocess.run(["git", *args], cwd=target, text=True, encoding="utf-8", capture_output=True, check=False)
+    result = subprocess.run(["git", *args], cwd=target, text=True, encoding="utf-8", capture_output=True, check=False, timeout=120)
     if result.returncode:
         raise RuntimeError(f"教学快照 Git 操作失败：{result.stderr.strip()}")
     return result.stdout.strip()

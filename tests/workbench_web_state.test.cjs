@@ -7,6 +7,7 @@ const path = require('node:path');
 function setup() {
   const nodes = new Map();
   const element = tag => ({tag, hidden:false, disabled:false, textContent:'', value:'', children:[],
+    classList: {toggle() {}},
     scrollIntoView() { this.scrolled = true; },
     focus() { this.focused = true; },
     close() { this.closed = true; },
@@ -23,6 +24,7 @@ function setup() {
     fetch: (url, options) => new Promise((resolve, reject) => pending.push({resolve, reject, url, options}))});
   const source = fs.readFileSync(path.join(__dirname, '../workbench_web/app.js'), 'utf8');
   vm.runInContext(source.replace(/boot\(\);\s*$/, ''), context);
+  context.refreshProjectHome = () => {};
   context.renderEvidence = detail => {
     context.rendered = detail.task_id;
     document.getElementById('task-detail').hidden = false;

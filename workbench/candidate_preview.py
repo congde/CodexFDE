@@ -29,9 +29,12 @@ class CandidatePreviews:
         task = self.tasks.get(task_id)
         gate = next((e.get('evidence') or {} for e in reversed(task['events'])
                      if e['detail'] == '课程红绿差分判定已完成'), {})
-        if task['status'] not in {'review', 'completed'} or not gate.get('accepted'):
+        package = next((e.get('evidence') or {} for e in reversed(task['events'])
+                        if e['detail'] == '日常研发交付包已保存'), {})
+        daily_ready = package.get('status') == 'review' and (task.get('result') or {}).get('summary', {}).get('decision') == 'pass'
+        if task['status'] not in {'review', 'completed'} or not (gate.get('accepted') or daily_ready):
             raise ValueError('本次候选成果还未完成范围与自动检查，请先查看交付证据')
-        workspace = self.runtime / 'course-worktrees' / task_id
+        workspace = Path(package['workspace']) if daily_ready else self.runtime / 'course-worktrees' / task_id
         if workspace.is_symlink() or not workspace.resolve().is_relative_to(self.runtime) or not (workspace/'web/index.html').is_file():
             raise ValueError('本次隔离成果不在原运行目录，或尚无可预览的客户界面')
         execution = next((e.get('evidence') or {} for e in reversed(task['events'])

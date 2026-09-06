@@ -6,7 +6,7 @@ const state = {
   token: sessionStorage.getItem("flowerp_token") || "",
   csrf: sessionStorage.getItem("flowerp_csrf") || "",
   user: null, page: "dashboard", products: [], customers: [], suppliers: [],
-  sites: [], inventory: [], sales: [], returns: [], purchases: [], receipts: [], invoices: [], payments: [],
+  sites: [], inventory: [], inventoryKeyword: "", inventoryStatus: "idle", inventoryRequest: 0, sales: [], returns: [], purchases: [], receipts: [], invoices: [], payments: [],
   periods: [], counts: [], serials: [], priceLists: [], alerts: [], reconciliations: [], bankAccounts: [], bankStatements: [], tasks: [], deliveryViews: [], feedback: [], evolutions: [], courseStatus: null, courseLessons: [], importJob: null, dashboard: {}, dashboardTrends: null, trendMetric: "sales", loading: 0, commandIndex: 0
 };
 const pageNames = {dashboard:"经营驾驶舱",channels:"渠道订单中台",sales:"销售订单",purchases:"采购管理",inventory:"库存管理",finance:"财务中心",products:"商品档案",partners:"客户与供应商",audit:"审计日志",delivery:"交付证据",settings:"系统与用户"};
@@ -182,16 +182,26 @@ async function loadBase() {
   state.products=result[0].items;state.customers=result[1].items;state.suppliers=result[2].items;state.sites=result[3].items;
 }
 async function loadPage(page,notify) {
+  const inventoryRequest=page==="inventory" ? ++state.inventoryRequest : null;
+  if(page==="inventory")setInventoryStatus("loading");
   setLoading(true);const current=$("#page-"+page);if(current)current.setAttribute("aria-busy","true");
   try {
     if (["dashboard","channels","sales","purchases","inventory","products","partners"].indexOf(page)>=0) await loadBase();
+    if(page==="inventory" && inventoryRequest!==state.inventoryRequest)return;
     if(page==="dashboard")await renderDashboard();if(page==="sales")await renderSales();if(page==="purchases")await renderPurchases();
     if(page==="channels")await renderChannels();
-    if(page==="inventory")await renderInventory();if(page==="finance")await renderFinance();if(page==="products")await renderProducts();
+    if(page==="inventory")await renderInventory(inventoryRequest);if(page==="finance")await renderFinance();if(page==="products")await renderProducts();
     if(page==="partners")renderPartners();if(page==="audit")await renderAudit();if(page==="delivery")await renderDelivery();if(page==="settings")await renderSettings();
+    if(page==="inventory" && inventoryRequest!==state.inventoryRequest)return;
     if(notify)toast("数据已刷新");
-  } catch(error) { $("#sync-state").classList.add("error");toast(error.message,"error"); }
-  finally {setLoading(false);if(current)current.setAttribute("aria-busy","false");}
+  } catch(error) {
+    if(page==="inventory") {
+      if(inventoryRequest!==state.inventoryRequest)return;
+      setInventoryStatus("failed");
+    }
+    $("#sync-state").classList.add("error");toast(error.message,"error");
+  }
+  finally {setLoading(false);if(current && (page!=="inventory" || inventoryRequest===state.inventoryRequest))current.setAttribute("aria-busy","false");}
 }
 
 function commandItems() {
@@ -328,10 +338,30 @@ async function renderPurchases() {
   state.receipts=result[1].items;
   $("#receipts-table").innerHTML=table(["收货单","采购单 / 供应商","收货日期","库位","合格 / 拒收","状态","操作"],state.receipts.map(function(x){const actions=(x.status==="draft"?'<button class="button small primary" data-action="receipt-post" data-id="'+x.id+'">过账</button>':'')+'<button class="button small ghost" data-action="receipt-view" data-id="'+x.id+'">详情</button>';return '<tr><td><b>'+esc(x.receipt_number)+'</b></td><td>'+esc(x.order_number)+'<span class="cell-sub">'+esc(x.supplier_name)+'</span></td><td>'+esc(x.receipt_date)+'</td><td>'+esc(x.location_code)+'</td><td>'+x.accepted_quantity+' / '+x.rejected_quantity+'</td><td>'+status(x.status)+'</td><td><div class="row-actions">'+actions+'</div></td></tr>'; }));bindActions($("#receipts-table"));
 }
-async function renderInventory() {
+function setInventoryStatus(value) {
+  state.inventory=[];state.inventoryStatus=value;renderInventoryBalances();
+}
+function renderInventoryBalances() {
+  if(state.inventoryStatus!=="ready") {
+    const message=state.inventoryStatus==="failed" ? "库存余额加载失败，请刷新重试" : state.inventoryStatus==="loading" ? "正在加载库存余额…" : "等待加载库存余额";
+    $("#inventory-filter-status").textContent=message;
+    $("#inventory-table").innerHTML=empty(message,"成功加载后可筛选当前余额");return;
+  }
+  const keyword=state.inventoryKeyword.trim().toLowerCase();
+  const items=state.inventory.filter(function(item){return !keyword || ["sku","product_name","site_code","location_code"].some(function(key){return String(item[key] == null ? "" : item[key]).toLowerCase().includes(keyword);});});
+  $("#inventory-filter-status").textContent="当前显示 "+items.length+" / 已加载 "+state.inventory.length+" 条";
+  if(!items.length) {
+    $("#inventory-table").innerHTML=state.inventory.length ? empty("没有匹配的库存余额","请修改关键字或点击清空按钮") : empty("暂无库存余额","当前 API 未返回库存余额");return;
+  }
+  $("#inventory-table").innerHTML=table(["商品","仓库 / 库位","批次","在库","预占","可用","补货点"],items.map(function(x){return '<tr><td><b>'+esc(x.product_name)+'</b><span class="cell-sub">'+esc(x.sku)+'</span></td><td>'+esc(x.site_code)+" / "+esc(x.location_code)+'</td><td>'+esc(x.lot_id||"—")+'</td><td class="numeric">'+x.on_hand+'</td><td class="numeric">'+x.reserved+'</td><td class="numeric"><b>'+x.available+'</b></td><td class="numeric">'+x.min_stock+"</td></tr>";}));
+}
+$("#inventory-keyword").oninput=function(){state.inventoryKeyword=this.value;renderInventoryBalances();};
+$("#inventory-clear").onclick=function(){state.inventoryKeyword="";$("#inventory-keyword").value="";renderInventoryBalances();};
+async function renderInventory(request) {
   const result=await Promise.all([api("/api/v1/inventory/balances"),api("/api/v1/inventory/ledger?limit=500"),api("/api/v1/reports/reorder"),api("/api/v1/inventory/counts?limit=500"),api("/api/v1/inventory/serials?limit=500")]);
+  if(request!==state.inventoryRequest)return;
   state.inventory=result[0].items;
-  $("#inventory-table").innerHTML=table(["商品","仓库 / 库位","批次","在库","预占","可用","补货点"],result[0].items.map(function(x){return '<tr><td><b>'+esc(x.product_name)+'</b><span class="cell-sub">'+esc(x.sku)+'</span></td><td>'+esc(x.site_code)+" / "+esc(x.location_code)+'</td><td>'+esc(x.lot_id||"—")+'</td><td class="numeric">'+x.on_hand+'</td><td class="numeric">'+x.reserved+'</td><td class="numeric"><b>'+x.available+'</b></td><td class="numeric">'+x.min_stock+"</td></tr>";}));
+  state.inventoryStatus="ready";renderInventoryBalances();
   $("#ledger-table").innerHTML=table(["时间","业务类型","商品","来源","目标","数量","关联单据"],result[1].items.map(function(x){return "<tr><td>"+dateTime(x.occurred_at)+"</td><td>"+esc(x.move_type)+"</td><td><b>"+esc(x.product_name)+'</b><span class="cell-sub">'+esc(x.sku)+"</span></td><td>"+esc(x.source_code||"外部")+"</td><td>"+esc(x.destination_code||"外部")+'</td><td class="numeric">'+x.quantity+"</td><td>"+esc(x.reference_id||"—")+"</td></tr>";}));
   $("#reorder-table").innerHTML=table(["商品","可用 + 在途","最低库存","最高库存","建议采购"],result[2].items.map(function(x){return '<tr><td><b>'+esc(x.name)+'</b><span class="cell-sub">'+esc(x.sku)+'</span></td><td class="numeric">'+x.projected+'</td><td class="numeric">'+x.min_stock+'</td><td class="numeric">'+x.max_stock+'</td><td class="numeric"><b>'+x.suggested_quantity+"</b></td></tr>";}));
   state.counts=result[3].items;$("#counts-table").innerHTML=table(["盘点单","日期 / 库位","明细数","绝对差异","状态","操作"],state.counts.map(function(x){const actions=(x.status==="pending_approval"?'<button class="button small primary" data-action="count-post" data-id="'+x.id+'">审核过账</button>':'')+'<button class="button small ghost" data-action="count-view" data-id="'+x.id+'">详情</button>';return '<tr><td><b>'+esc(x.document_number)+'</b></td><td>'+esc(x.count_date)+'<span class="cell-sub">'+esc(x.location_code)+' · '+esc(x.location_name)+'</span></td><td class="numeric">'+x.line_count+'</td><td class="numeric">'+x.variance_quantity+'</td><td>'+status(x.status)+'</td><td><div class="row-actions">'+actions+'</div></td></tr>'; }));bindActions($("#counts-table"));

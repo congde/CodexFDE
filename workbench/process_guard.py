@@ -60,13 +60,14 @@ class WindowsJob:
                 raise ctypes.WinError(ctypes.get_last_error())
 
 
-def spawn(command, cwd):
+def spawn(command, cwd, *, env=None):
     """Return (process, owner, stdin prefix). No command runs before assignment."""
     owner = WindowsJob() if os.name == 'nt' else None
     actual = [sys.executable, '-X', 'utf8', '-u', str(Path(__file__).resolve())] if owner else command
     try:
         process = subprocess.Popen(actual, cwd=cwd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                    stderr=subprocess.PIPE, text=True, encoding='utf-8', errors='replace',
+                                   env=env,
                                    **({'creationflags': subprocess.CREATE_NO_WINDOW} if owner else {}))
         if owner:
             try:

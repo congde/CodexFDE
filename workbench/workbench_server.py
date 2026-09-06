@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import mimetypes
 import uuid
+import sys
+from .project_store import ProjectStore
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -19,6 +21,7 @@ from .web_execution import WebExecution
 from .runtime_lease import WorkbenchRuntimeLease
 from .initiative import InitiativeStore
 from .candidate_preview import CandidatePreviews
+from .initiative_workflow import InitiativeWorkflow
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -41,11 +44,22 @@ class WorkbenchApp:
         self.port = port
         self.eval_factory = eval_factory
         self.tasks = TaskStore(self.runtime / "workbench.db")
+        self.projects = ProjectStore(self.tasks.path)
+        existing = next((p for p in self.projects.list() if Path(p['root_path']) == ROOT), None)
+        default = existing or self.projects.create('FlowERP', ROOT,
+            [str(ROOT / '.venv' / ('Scripts/python.exe' if sys.platform == 'win32' else 'bin/python')),
+             '-X', 'utf8', '-m', 'eval.harness', '--suite', 'blocking', '--report-path', '{report_path}'],
+            project_id='PROJECT-FLOWERP')
         self.initiatives = InitiativeStore(self.tasks.path)
+        with self.initiatives.connect() as db:
+            db.execute("UPDATE initiatives SET project_id=? WHERE project_id IN ('', 'FlowERP')", (default['id'],))
+        self.default_project = default['id']
         self.evolutions = EvolutionStore(self.tasks.path)
         self.views = DeliveryViewService(self.tasks, self.evolutions)
         self.code = WebExecution(ROOT, self.runtime, self.tasks, enabled=enable_code_execution)
         self.previews = CandidatePreviews(self.runtime, self.tasks)
+        self.initiative_workflow = InitiativeWorkflow(ROOT, self.runtime, self.initiatives, self.tasks,
+                                                     enabled=enable_code_execution, projects=self.projects)
         self.automation = DeliveryAutomation(
             self.tasks, self.runtime, max_attempts=1,
             agent_runner=lambda task_id, actor: self._run_course_task(task_id, actor),
@@ -158,6 +172,9 @@ class WorkbenchApp:
 
     def review_task(self, task_id: str, reviewer: str, decision: str, note: str) -> dict:
         task = self.tasks.get(task_id)
+        if any(event.get('detail') == '网页具名授权日常研发' and
+               (event.get('evidence') or {}).get('initiative_id') for event in task.get('events', [])):
+            raise ValueError('请回到关联事项中核对当前候选并验收，或留下修改意见')
         daily = any(event.get('detail') == '网页具名授权日常研发' for event in task.get('events', []))
         if daily and decision == 'approve':
             packages = [event.get('evidence', {}) for event in task.get('events', [])
@@ -193,9 +210,13 @@ def make_handler(app: WorkbenchApp):
             try:
                 if path == "/api/health":
                     return self._json(200, app.health())
+                if path == '/api/v1/projects':
+                    return self._json(200, {'items': app.projects.list(), 'default_project': app.default_project})
                 if path == '/api/v1/initiatives':
                     return self._json(200, {'items': app.initiatives.list(100)})
                 if path.startswith('/api/v1/initiatives/'):
+                    if path.endswith('/workflow'):
+                        return self._json(200, app.initiative_workflow.get(path.split('/')[-2]))
                     return self._json(200, app.initiatives.get(path.rsplit('/', 1)[-1]))
                 if path == "/api/v1/delivery/capabilities":
                     return self._json(200, {"surface": "workbench", "async_submission": True,
@@ -275,20 +296,73 @@ def make_handler(app: WorkbenchApp):
                 body = json.loads(self.rfile.read(length).decode("utf-8"))
                 if not isinstance(body, dict):
                     raise ValueError("请求体必须是 JSON 对象")
+                if path == '/api/v1/projects':
+                    if self.client_address[0] not in {'127.0.0.1', '::1'} or (self.headers.get('Origin') and self.headers['Origin'] != 'http://' + self.headers.get('Host', '')):
+                        raise ValueError('项目登记只允许从本机工作台操作')
+                    app.initiative_workflow.actor(body.get('actor'))
+                    command = body.get('eval_command')
+                    if not isinstance(command, list) or not command or any(not isinstance(p, str) or not p.strip() for p in command):
+                        raise ValueError('Eval 命令必须是非空参数数组')
+                    root = body.get('root_path')
+                    name = body.get('name')
+                    if not isinstance(root, str) or not root.strip() or not Path(root).is_absolute() or not isinstance(name, str) or not name.strip():
+                        raise ValueError('请填写项目名称与源码目录的绝对路径')
+                    if not Path(command[0]).is_absolute() or not Path(command[0]).is_file():
+                        raise ValueError('测试命令首项必须是项目运行环境中可执行程序的绝对路径')
+                    if any(Path(p['root_path']) == Path(root).resolve() for p in app.projects.list()):
+                        raise ValueError('该源码目录已登记，请选择已有项目')
+                    return self._json(201, app.projects.create(name, root, command))
                 if path == '/api/v1/initiatives' or path.startswith('/api/v1/initiatives/'):
                     actor = str(body.get('actor') or '').strip()
                     if not actor or len(actor) > 80 or actor.startswith('agent:'):
                         raise ValueError('事项与决定需要具名人操作')
+                    if '/workflow/' in path:
+                        if self.client_address[0] not in {'127.0.0.1', '::1'}:
+                            raise ValueError('事项执行只允许从本机工作台操作')
+                        origin = self.headers.get('Origin')
+                        if origin and origin != 'http://' + self.headers.get('Host', ''):
+                            return self._json(403, {'error': 'cross_origin', 'message': '请从当前工作台页面操作'})
+                        parts = path.split('/')
+                        if len(parts) != 7 or parts[-2] != 'workflow':
+                            raise ValueError('事项操作路径无效')
+                        item_id, action = parts[-3], parts[-1]
+                        service, revision = app.initiative_workflow, body.get('revision')
+                        if action in {'release', 'outcome'}:
+                            return self._json(200, service.record_delivery(item_id, actor, revision, action, body.get('fields')))
+                        if action == 'reopen':
+                            return self._json(200, service.reopen(item_id, actor, revision, body.get('text')))
+                        if action == 'discuss':
+                            return self._json(202, service.discuss(item_id, actor, revision, body.get('text')))
+                        if action == 'confirm-prd':
+                            return self._json(200, service.confirm_prd(item_id, actor, revision, body.get('success_metric')))
+                        if action == 'cancel':
+                            return self._json(200, service.cancel(item_id, actor, revision))
+                        if action == 'confirm':
+                            return self._json(200, service.confirm(item_id, actor, revision, body.get('reviewer')))
+                        if action == 'execute':
+                            return self._json(202, service.execute(item_id, actor, revision))
+                        if action == 'accept':
+                            return self._json(200, service.accept(item_id, actor, revision, body.get('note')))
+                        if action == 'integrate':
+                            return self._json(202, service.integrate(item_id, actor, revision))
+                        return self._json(404, {'error': 'not_found'})
                     if path == '/api/v1/initiatives':
                         data = body.get('data')
                         if not isinstance(data, dict):
                             raise ValueError('事项内容必须是对象')
+                        data = dict(data)
+                        data['project_id'] = data.get('project_id') or app.default_project
+                        if data['project_id'] == 'FlowERP': data['project_id'] = app.default_project
+                        app.projects.get(data['project_id'])
                         return self._json(201, app.initiatives.create(data, actor))
                     parts = path.split('/')
                     if len(parts) == 6:
                         item_id, action = parts[-2:]
                         version = int(body.get('version', 0))
                         if action == 'revise':
+                            original = app.initiatives.get(item_id)
+                            if body.get('data', {}).get('project_id', original['project_id']) != original['project_id']:
+                                raise ValueError('事项创建后不能切换项目')
                             return self._json(200, app.initiatives.revise(item_id, body.get('data', {}), actor, version))
                         if action == 'decide':
                             item = app.initiatives.get(item_id)

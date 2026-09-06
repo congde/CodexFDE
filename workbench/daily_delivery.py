@@ -13,13 +13,20 @@ from .spec import parse_spec
 from .workflow import run_task
 
 
+def snapshot_paths(root, runtime):
+    if not (root / '.git').exists() and (root / 'workbench/cli.py').is_file() and (root / 'eval/harness.py').is_file():
+        return source_paths(root, runtime)
+    from .project_delivery import project_source_paths
+    return project_source_paths(root, runtime)
+
+
 def manifest(repository, runtime):
     root = Path(repository).resolve()
     return {p.relative_to(root).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
-            for p in source_paths(root, Path(runtime).resolve())}
+            for p in snapshot_paths(root, Path(runtime).resolve())}
 
 
-def prepare_daily(repository, runtime, actor, request, acceptance, write_scope, non_goals='不扩大本次需求范围'):
+def prepare_daily(repository, runtime, actor, request, acceptance, write_scope, non_goals='不扩大本次需求范围', *, project=None):
     if not isinstance(actor, str) or not actor.strip() or actor.strip().startswith('agent:') or len(actor) > 80:
         raise ValueError('请填写本次授权人的署名')
     for value in (request, acceptance, non_goals):
@@ -33,7 +40,7 @@ def prepare_daily(repository, runtime, actor, request, acceptance, write_scope, 
     # This first daily lane supports the repository source; no lesson slicing.
     source = manifest(repository, runtime)
     from .course_snapshot import SOURCE_DIRS, ROOT_FILES
-    if any(p.split('/')[0] not in SOURCE_DIRS and p not in ROOT_FILES for p in scopes):
+    if project is None and any(p.split('/')[0] not in SOURCE_DIRS and p not in ROOT_FILES for p in scopes):
         raise ValueError('当前日常研发支持本项目源码目录；请填写项目内的源文件范围')
     spec = '\n\n'.join('## ' + title + '\n\n' + value for title, value in [
         ('来源', '日常研发需求，提交人：' + actor.strip()), ('目标', request.strip()),
@@ -41,7 +48,7 @@ def prepare_daily(repository, runtime, actor, request, acceptance, write_scope, 
         ('验收用例', acceptance.strip()),
         ('完成定义', '实现本次需求并补充相关测试，阻断级 Eval 通过；交付真实 Diff，由具名人验收。')])
     parse_spec(spec)
-    return {'kind': 'daily', 'actor': actor.strip(), 'request': request.strip(),
+    return {'project': project, 'kind': 'daily', 'actor': actor.strip(), 'request': request.strip(),
             'acceptance': acceptance.strip(), 'write_scope': scopes, 'spec_text': spec,
             'source_manifest': source, 'source_sha256': hashlib.sha256(
                 json.dumps(source, sort_keys=True).encode()).hexdigest(),
@@ -51,7 +58,13 @@ def prepare_daily(repository, runtime, actor, request, acceptance, write_scope, 
 
 def submit_daily(repository, runtime, tasks, plan, on_task_created, *, runner_factory=CodexExecutionRunner,
                  eval_factory=LessonSubprocessEvalRunner):
+    from .execution_control import checkpoint
+    checkpoint()
     runtime = Path(runtime).resolve()
+    if plan.get('project'):
+        from .project_delivery import CandidateProjectEval
+        command = plan['project']['eval_command']
+        eval_factory = lambda w, r, t, c, label: CandidateProjectEval(w, r, t, command, label)
     if manifest(repository, runtime) != plan['source_manifest']:
         raise ValueError('项目源码已变化，请重新准备方案，避免从旧版本开始工作')
     folder = runtime / 'daily-delivery' / plan['plan_id']
@@ -60,7 +73,7 @@ def submit_daily(repository, runtime, tasks, plan, on_task_created, *, runner_fa
     spec_path.write_text(plan['spec_text'], encoding='utf-8')
     task = tasks.create(plan['request'], requirement_id='REQ-DAILY-' + plan['plan_id'][:10].upper(),
                         spec_path=str(spec_path), actor=plan['actor'], execution_mode='codex',
-                        write_scope=plan['write_scope'])
+                        write_scope=plan['write_scope'], business_refs=['PROJECT:' + plan['project']['id']] if plan.get('project') else [])
     on_task_created(task)
     tasks.append_event(task['id'], '本次需求 Spec 已冻结', actor=plan['actor'],
                        evidence={'sha256': hashlib.sha256(spec_path.read_bytes()).hexdigest()})
@@ -76,7 +89,9 @@ def submit_daily(repository, runtime, tasks, plan, on_task_created, *, runner_fa
     if manifest(repository, runtime) != plan['source_manifest']:
         raise ValueError('复制期间源码变化，请重新准备方案')
     _git(workspace, 'init', '--quiet')
-    _git(workspace, 'add', '--all')
+    # The snapshot already uses an explicit source allowlist. Preserve ignored
+    # local contracts too; otherwise later patches mistake them for new files.
+    _git(workspace, 'add', '--force', '--all')
     _git(workspace, '-c', 'user.name=Workbench snapshot', '-c', 'user.email=workbench@localhost',
          '-c', 'commit.gpgsign=false', 'commit', '--quiet', '-m', 'Daily development source snapshot')
     tasks.append_event(task['id'], '已创建日常研发隔离副本', actor=plan['actor'], evidence={
@@ -86,19 +101,24 @@ def submit_daily(repository, runtime, tasks, plan, on_task_created, *, runner_fa
     before = eval_factory(workspace, runtime, task['id'], cases, 'daily-before')()
     tasks.append_event(task['id'], '日常研发执行前检查', actor=plan['actor'], evidence=before)
     # Existing green checks are normal for new development; do not manufacture red.
+    checkpoint()
     runner = runner_factory(workspace, runtime)
     def execute(current):
         def progress(line):
             tasks.append_event(task['id'], '日常研发执行输出', actor='agent:codex',
                                evidence={'line': line[-8000:]})
+        checkpoint()
         evidence = runner(current, on_codex_line=progress)
+        checkpoint()
         if evidence.get('success') and not evidence.get('changed_files'):
             evidence = {**evidence, 'success': False, 'message': '没有实际文件改动，不能认定需求已实现'}
         return evidence
     result = run_task(tasks, task['id'], plan['actor'], execution_runner=execute,
                       suite_runner=eval_factory(workspace, runtime, task['id'], cases, 'daily-after'))
     # Include new files in the patch without committing or touching the source index.
-    _git(workspace, 'add', '--intent-to-add', '--all', '--', *plan['write_scope'])
+    for scope in plan['write_scope']:
+        if (workspace / scope).exists() or _git(workspace, 'ls-files', '--', scope):
+            _git(workspace, 'add', '--force', '--intent-to-add', '--all', '--', scope)
     patch_path = folder / 'changes.patch'
     import subprocess
     diff = subprocess.run(['git', 'diff', '--binary', 'HEAD'], cwd=workspace, capture_output=True, check=True)

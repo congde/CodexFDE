@@ -1,16 +1,20 @@
 let currentInitiative = null;
 let initiativeReadVersion = 0;
 let initiativeDirty = false;
-const initiativeFields = {title:'title',raw_signal:'raw',source:'source',problem_statement:'problem',goal:'goal',non_goals:'nongoals',acceptance:'acceptance',evidence:'evidence',reviewer:'reviewer'};
-const initiativeLabels = {investigating:'待整理',approved_for_delivery:'已决定进入交付准备',delivering:'已关联交付任务',deferred:'已暂缓',rejected:'已决定不做',stopped:'已停止',experiment:'试验中'};
+const initiativeFields = {title:'title',raw_signal:'raw',source:'source',problem_statement:'problem',goal:'goal',non_goals:'nongoals',acceptance:'acceptance',evidence:'evidence',reviewer:'reviewer',success_metric:'metric'};
+const initiativeLabels = {released:'已发布，待观察',observed:'已回收实际效果',investigating:'待整理',approved_for_delivery:'已确认方案',delivering:'正在推进交付',integrated:'已集成',deferred:'已暂缓',rejected:'已决定不做',stopped:'已停止',experiment:'试验中'};
 function initiativeInput(key) { return document.getElementById('init-' + key); }
 function initiativeLines(key) { return initiativeInput(key).value.split(/\n/).map(x=>x.trim()).filter(Boolean); }
 function showInitiative(item) {
   currentInitiative = item;
+  document.getElementById("view-decision").classList.add("item-open");
+  initiativeInput('project').disabled = !!item;
+  if(item) initiativeInput('project').value=item.project_id;
+  loadInitiativeProjects();
   initiativeDirty = false;
   document.getElementById('initiative-editor').hidden = false;
-  document.getElementById('initiative-contract').open = !(item && item.decision);
-  show('initiative-title', item ? item.title + ' · 版本 ' + item.version : '记录新事项');
+  document.getElementById('initiative-contract').open = !item;
+  show('initiative-title', item ? item.title : '开始一项新的交付');
   Object.entries(initiativeFields).forEach(function([field,id]) {
     let value = item ? item[field] : '';
     if (Array.isArray(value)) value = value.map(x=>typeof x === 'object' ? x.content : x).join('\n');
@@ -33,8 +37,9 @@ function showInitiative(item) {
     show('initiative-readiness', missing.length ? '进入交付前仍需补充：' + missing.map(x=>labels[x] || x).join('、') : '事项信息已具备，仍请你判断是否值得实施。');
     show('initiative-verdict', (initiativeLabels[item.status] || item.status) + '\n决定人：' + (item.decision_by || '未记录') + '\n理由：' + (item.decision_rationale || '') + (item.review_trigger ? '\n再评估条件：' + item.review_trigger : ''));
     document.getElementById('initiative-to-delivery').hidden = item.decision !== 'build';
-    show('initiative-to-delivery', item.linked_task_id ? '查看交付任务 ' + item.linked_task_id : '核对课程交付方案');
+    show('initiative-to-delivery', '在本事项中继续推进');
   }
+  showInitiativeWork(item);
 }
 async function refreshInitiatives() {
   const version = ++initiativeReadVersion;
@@ -72,11 +77,11 @@ async function refreshInitiatives() {
 async function saveInitiative(event) {
   event.preventDefault();
   const button = document.getElementById('save-initiative'); if(button.disabled) return;
-  const data = {source:initiativeInput('source').value.trim(), problem_statement:initiativeInput('problem').value.trim(), goal:initiativeInput('goal').value.trim(), non_goals:initiativeLines('nongoals'), acceptance:initiativeLines('acceptance'), evidence:initiativeLines('evidence'), reviewer:initiativeInput('reviewer').value.trim(), affected_areas:initiativeInput('area').value ? [initiativeInput('area').value] : [], project_id:'FlowERP'};
+  const data = {source:initiativeInput('source').value.trim(), problem_statement:initiativeInput('problem').value.trim(), goal:initiativeInput('goal').value.trim(), non_goals:initiativeLines('nongoals'), acceptance:initiativeLines('acceptance'), evidence:initiativeLines('evidence'), reviewer:initiativeInput('reviewer').value.trim(), affected_areas:initiativeInput('area').value ? [initiativeInput('area').value] : [], project_id:initiativeInput('project').value, success_metric:initiativeInput('metric').value.trim()};
   const item = currentInitiative;
   if(item && initiativeInput('area').disabled) data.affected_areas = item.affected_areas;
   if(item && initiativeInput('evidence').value === item.evidence.map(x=>x.content).join('\n')) data.evidence = item.evidence;
-  if(!item) {data.title=initiativeInput('title').value.trim(); data.raw_signal=initiativeInput('raw').value.trim();}
+  if(!item) {data.title=initiativeInput('title').value.trim(); data.raw_signal=initiativeInput('raw').value.trim() || data.title; data.source=data.source || '工作台事项输入';}
   button.disabled = true;
   try {
     const result = await api('/api/v1/initiatives' + (item ? '/' + item.id + '/revise' : ''), {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({actor:actorName(),version:item && item.version,data})});
@@ -95,15 +100,32 @@ async function decideInitiative() {
   }catch(error){show('initiative-status','决定未确认：' + error.message);}finally{button.disabled=false;}
 }
 function initInitiatives() {
+  initInitiativeWork();
   document.getElementById('capture-initiative').onclick=function(){ if(initiativeDirty){show('initiative-status','请先保存当前修改。');return;} ++initiativeReadVersion; showInitiative(null); };
   document.getElementById('initiative-form').addEventListener('submit',saveInitiative);
   document.getElementById('initiative-form').addEventListener('input',function(){initiativeDirty=true;});
   document.getElementById('decide-initiative').onclick=decideInitiative;
   document.getElementById('initiative-to-delivery').onclick=function(){
     if(!currentInitiative || currentInitiative.decision !== 'build')return;
-    if(currentInitiative.linked_task_id) {loadDetail(currentInitiative.linked_task_id);return;}
-    document.getElementById('task-request').value='事项：' + currentInitiative.title + '\n目标：' + currentInitiative.goal + '\n验收：' + currentInitiative.acceptance.join('；');
-    openComposer({id:currentInitiative.id,version:currentInitiative.version});
-    show('task-submit-status','已带入事项摘要；请核对课程合同是否覆盖本次需求。代码实现的具体任务以授权方案为准。');
+    document.getElementById('initiative-work').scrollIntoView({behavior:'smooth'});
   };
 }
+
+async function loadInitiativeProjects() {
+  try {
+    const body=await api('/api/v1/projects');
+    const select=initiativeInput('project');
+    const selected=currentInitiative ? currentInitiative.project_id : select.value || body.default_project;
+    select.replaceChildren();
+    body.items.forEach(project=>{const option=document.createElement('option');option.value=project.id;option.textContent=project.name;select.append(option);});
+    select.value=selected;
+  } catch(error){show('project-status',error.message);}
+}
+document.getElementById('project-register').onclick=async function() {
+  this.disabled=true;
+  try {
+    const project=await api('/api/v1/projects',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({actor:actorName(),name:document.getElementById('project-name').value.trim(),root_path:document.getElementById('project-root').value.trim(),eval_command:JSON.parse(document.getElementById('project-eval').value)})});
+    await loadInitiativeProjects();if(!currentInitiative)initiativeInput('project').value=project.id;
+    show('project-status','已登记项目：'+project.name);
+  } catch(error){show('project-status','登记失败：'+error.message);} finally{this.disabled=false;}
+};

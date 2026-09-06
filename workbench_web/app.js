@@ -187,12 +187,15 @@ function workspaceView(view) {
   const delivery = view === "delivery";
   const decision = view === 'decision';
   if (!delivery) { stopProgress(); ++detailVersion; }
-  document.getElementById("view-overview").hidden = delivery || decision;
+  document.getElementById("view-overview").hidden = view !== "overview";
+  document.getElementById("view-course").hidden = view !== "course";
   document.getElementById('view-decision').hidden = !decision;
   document.getElementById("view-delivery").hidden = !delivery;
-  show("page-section", delivery ? "交付与验收" : "总览");
-  show("page-title", delivery ? "让每一个决定，都有证据。" : "把每一次交付，做得有据可查。");
-  if (decision) { show('page-section', '事项与决策'); show('page-title', '先把需求想清楚，再开始交付。'); }
+  show("page-section", delivery ? "交付记录" : view === "course" ? "课程与练习" : "项目交付");
+  show("page-title", delivery ? "核对成果，再作出验收决定。" : view === "course" ? "通过真实交付，练习工程能力。" : "从目标，到可验收的结果。");
+  document.getElementById("mock-notice").classList.toggle("course-notice", view === "course" || view === "delivery");
+  if(view === "overview") refreshProjectHome();
+  if (decision) { show('page-section', '事项与决策'); show('page-title', '把这项交付，向前推进一步。'); }
   document.querySelectorAll("[data-view]").forEach(function (button) {
     button.classList.toggle("active", button.dataset.view === view);
   });
@@ -668,11 +671,13 @@ async function boot() {
   document.getElementById('resume-execution').onclick = resumeExecution;
   const identity = document.getElementById('task-actor');
   try { identity.value = localStorage.getItem('workbench-actor') || ''; } catch (_) { /* Storage is optional. */ }
+  if (identity.value.trim()) show('identity-status', '当前署名：' + identity.value.trim() + '。确认与验收会记录此署名。');
   identity.addEventListener('change', function() {
     try { localStorage.removeItem('workbench-actor'); } catch (_) { /* Storage is optional. */ }
     try { actorName(); } catch(error) { show('identity-status', error.message); }
   });
   initInitiatives();
+  initProjectHome();
   document.querySelectorAll('[data-delivery-panel]').forEach(function(button) {
     button.onclick = function() { selectDeliveryPanel(button.dataset.deliveryPanel); };
   });
@@ -699,13 +704,21 @@ async function boot() {
       renderTasks(taskCache, selectedTask);
     };
   });
-  ["new-task", "new-task-side", "new-task-hero"].forEach(function (id) {
+  ["new-task-side"].forEach(function (id) {
     document.getElementById(id).onclick = openComposer;
+  });
+  ["new-task", "new-task-hero"].forEach(function (id) {
+    document.getElementById(id).onclick = function () {
+      workspaceView('decision'); refreshInitiatives();
+      if (!initiativeDirty) showInitiative(null);
+    };
   });
   document.getElementById("close-composer").onclick = function () { document.getElementById("task-composer").close(); };
   document.querySelector(".brand").onclick = function (event) { event.preventDefault(); workspaceView("overview"); };
   document.getElementById("task-form").addEventListener("submit", submitTask);
   document.getElementById("refresh-tasks").onclick = function () {
+    if(!document.getElementById("view-overview").hidden)refreshProjectHome();
+    if(!document.getElementById("view-decision").hidden){refreshInitiatives();refreshInitiativeWork();}
     refreshTasks(selectedTask).catch(function () { /* Error is already visible. */ });
   };
   try {

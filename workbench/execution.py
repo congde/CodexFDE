@@ -167,11 +167,16 @@ class CodexExecutionRunner:
         schema_path.write_text(json.dumps(self._output_schema(), ensure_ascii=False, indent=2), encoding="utf-8")
         before = self._snapshot()
         prompt = self._build_prompt(task, scopes)
+        from .codex_options import headless_options
         command = [
-            self.executable, "exec", "--json", "--sandbox", "workspace-write", "--ephemeral",
+            self.executable, "exec", *headless_options(), "--json", "--sandbox", "workspace-write", "--ephemeral",
             "--output-schema", str(schema_path), "--output-last-message", str(result_path),
             "--cd", str(self.workspace_root), "-",
         ]
+        (run_dir / 'prompt.txt').write_text(prompt, encoding='utf-8')
+        (run_dir / 'invocation.json').write_text(json.dumps({
+            'command': command, 'workspace': str(self.workspace_root), 'sandbox': 'workspace-write',
+            'prompt_path': str(run_dir / 'prompt.txt')}, ensure_ascii=False, indent=2), encoding='utf-8')
         started = time.monotonic()
         timed_out = False
         launch_error = ""
@@ -211,6 +216,7 @@ class CodexExecutionRunner:
         )
         evidence = {
             "success": success,
+            "invocation": {"command": command, "workspace": str(self.workspace_root), "prompt": prompt},
             "mode": "codex_exec",
             "message": message,
             "sandbox": "workspace-write",
@@ -252,7 +258,8 @@ class CodexExecutionRunner:
         stderr_parts: list[str] = []
         lines = queue.Queue()
         try:
-            process, owner, prefix = spawn_owned_process(command, self.workspace_root)
+            from .codex_options import headless_environment
+            process, owner, prefix = spawn_owned_process(command, self.workspace_root, env=headless_environment())
         except OSError as exc:
             return subprocess.CompletedProcess(command, 127, stdout="", stderr=str(exc))
 
@@ -280,8 +287,14 @@ class CodexExecutionRunner:
         deadline = started + timeout
         ended = set()
         timed_out = False
+        was_cancelled = False
         try:
             while len(ended) < 2 or process.poll() is None:
+                from .execution_control import cancelled
+                if cancelled():
+                    stderr_parts.append('任务已取消')
+                    was_cancelled = True
+                    break
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     timed_out = True
@@ -311,7 +324,7 @@ class CodexExecutionRunner:
                 if line is not None:
                     (stdout_parts if channel == "out" else stderr_parts).append(line)
         return subprocess.CompletedProcess(
-            command, 124 if timed_out else int(process.returncode or 0),
+            command, 130 if was_cancelled else 124 if timed_out else int(process.returncode or 0),
             stdout="".join(stdout_parts), stderr="".join(stderr_parts),
         )
 

@@ -149,7 +149,12 @@
         <section class="page hidden" id="page-inventory">
           <div class="page-heading"><div><p class="eyebrow">INVENTORY CONTROL</p><h1>库存管理</h1><p>多仓库、库位、批次、调拨、盘点和不可变流水。</p></div><div class="heading-actions"><button class="button" data-open="serial">登记序列号</button><button class="button" data-open="transfer">库存调拨</button><button class="button" data-open="stock-count">库存盘点</button><button class="button primary" data-open="receive">＋ 其他入库</button></div></div>
           <div class="tabs" data-tabs="inventory"><button class="active" data-tab="balances">即时库存</button><button data-tab="ledger">库存流水</button><button data-tab="counts">盘点单</button><button data-tab="serials">序列号</button><button data-tab="reorder">补货建议</button></div>
-          <article class="panel tab-panel" data-tab-panel="balances"><div class="table-scroll" id="inventory-table"></div></article>
+          <article class="panel tab-panel" data-tab-panel="balances">
+            <div class="filterbar"><label for="inventory-keyword">库存余额关键字</label><input id="inventory-keyword" type="search" placeholder="SKU、商品名称、仓库编码或库位编码" aria-describedby="inventory-filter-scope"><button id="inventory-clear" type="button" class="button ghost">清空</button></div>
+            <p id="inventory-filter-scope">仅筛选当前 API 已加载余额</p>
+            <p id="inventory-filter-status" role="status" aria-live="polite">等待加载库存余额</p>
+            <div class="table-scroll" id="inventory-table"></div>
+          </article>
           <article class="panel tab-panel hidden" data-tab-panel="ledger"><div class="table-scroll" id="ledger-table"></div></article>
           <article class="panel tab-panel hidden" data-tab-panel="counts"><div class="table-scroll" id="counts-table"></div></article>
           <article class="panel tab-panel hidden" data-tab-panel="serials"><div class="table-scroll" id="serials-table"></div></article>
@@ -232,6 +237,6 @@
     </div>
   </div>
   <div class="toast-stack" id="toast-stack" aria-live="polite"></div>
-  <script src="./app.js?v=41" defer></script>
+  <script src="./app.js?v=42" defer></script>
 </body>
 </html>

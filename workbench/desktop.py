@@ -97,9 +97,10 @@ def launch(runtime: Path, port: int = 8001, *, timeout: float = 20,
                    '--host', '127.0.0.1', '--port', str(port), '--runtime-dir', str(runtime)]
         if surface == 'workbench':
             command += ['--enable-code-execution', '--erp-url', f'http://127.0.0.1:{erp_port}']
-        options = {'creationflags': subprocess.CREATE_NO_WINDOW} if os.name == 'nt' else {'start_new_session': True}
+        options = {'creationflags': subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == 'nt' else {'start_new_session': True}
         with log.open('wb') as output:
-            process = subprocess.Popen(command, cwd=ROOT, stdin=subprocess.DEVNULL,
+            from .codex_options import headless_environment
+            process = subprocess.Popen(command, cwd=ROOT, env=headless_environment(), stdin=subprocess.DEVNULL,
                                        stdout=output, stderr=subprocess.STDOUT, **options)
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
@@ -114,21 +115,29 @@ def launch(runtime: Path, port: int = 8001, *, timeout: float = 20,
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description='打开个人研发工作台，保留原任务和启动记录')
-    parser.add_argument('--runtime-dir', type=Path, default=ROOT / '.runtime')
+    parser.add_argument('--runtime-dir', type=Path, help='显式覆盖工作台运行目录')
+    parser.add_argument('--erp-runtime-dir', type=Path, help='显式覆盖 FlowERP 运行目录')
     parser.add_argument('--port', type=int, default=8001)
     parser.add_argument('--erp-port', type=int, default=8000)
     parser.add_argument('--open-browser', action='store_true')
     args = parser.parse_args(argv)
     if not all(1 <= port <= 65535 for port in (args.port, args.erp_port)) or args.port == args.erp_port:
         parser.error('工作台和 FlowERP 必须使用 1 到 65535 之间的不同端口')
+    from .runtime_paths import service_runtime
     try:
-        result = launch(args.runtime_dir, args.port, erp_port=args.erp_port)
+        workbench_runtime = service_runtime('workbench', args.runtime_dir, root=ROOT)
+        erp_runtime = service_runtime('flowerp', args.erp_runtime_dir, root=ROOT)
+    except ValueError as error:
+        print(str(error), file=sys.stderr)
+        return 1
+    try:
+        result = launch(workbench_runtime, args.port, erp_port=args.erp_port)
     except (OSError, RuntimeError, sqlite3.Error) as error:
         print(f'暂时无法打开工作台：{error}', file=sys.stderr)
         return 1
     failed = False
     try:
-        result['flowerp'] = launch(args.runtime_dir, args.erp_port, surface='flowerp')
+        result['flowerp'] = launch(erp_runtime, args.erp_port, surface='flowerp')
     except (OSError, RuntimeError, sqlite3.Error) as error:
         failed = True
         result['flowerp'] = {'state': 'unavailable', 'message': str(error)}

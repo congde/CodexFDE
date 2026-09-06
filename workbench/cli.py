@@ -78,11 +78,11 @@ def main() -> int:
     serve_cmd = sub.add_parser("serve", help="客户项目：启动 FlowERP（默认 :8000）")
     serve_cmd.add_argument("--host", default="127.0.0.1")
     serve_cmd.add_argument("--port", type=int, default=8000)
-    serve_cmd.add_argument("--runtime-dir", default=".runtime")
+    serve_cmd.add_argument("--runtime-dir", help="覆盖本机 services.json 中保存的数据目录")
     workbench_serve_cmd = sub.add_parser("serve-workbench", help="工作台：启动跟跑必做驾驶舱（默认 :8001）")
     workbench_serve_cmd.add_argument("--host", default="127.0.0.1")
     workbench_serve_cmd.add_argument("--port", type=int, default=8001)
-    workbench_serve_cmd.add_argument("--runtime-dir", default=".runtime")
+    workbench_serve_cmd.add_argument("--runtime-dir", help="覆盖本机 services.json 中保存的数据目录")
     workbench_serve_cmd.add_argument('--erp-url', default='http://127.0.0.1:8000', help='客户项目的本机地址')
     workbench_serve_cmd.add_argument("--enable-code-execution", action="store_true", help="允许在网页确认课程方案后授权隔离代码执行")
     harness_serve_cmd = sub.add_parser("harness-serve", help="可选平台：完整 Harness（:8010，非大纲通过项）")
@@ -193,6 +193,13 @@ def main() -> int:
     task_list_cmd = sub.add_parser("task-list", help="列出交付任务")
     task_list_cmd.add_argument("--runtime-dir", default=".runtime"); task_list_cmd.add_argument("--limit", type=int, default=30)
     args = parser.parse_args()
+    if args.command in {"serve", "serve-workbench"}:
+        from .runtime_paths import service_runtime
+        try:
+            args.runtime_dir = str(service_runtime(
+                "flowerp" if args.command == "serve" else "workbench", args.runtime_dir))
+        except ValueError as error:
+            parser.error(str(error))
     if args.command in {"workbench-init", "workbench-project-add", "workbench-task-create", "workbench-evidence-add", "workbench-status"}:
         return run_bootstrap_command(args)
     if args.command == "feedback":
