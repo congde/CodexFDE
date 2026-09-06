@@ -151,6 +151,22 @@ class CourseMainlineTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "1 到 16"):
             lesson_contract(17)
 
+    def test_l07_prepares_reviewable_hook_files_without_authorizing_active_hooks(self) -> None:
+        from workbench.execution import CodexExecutionRunner, normalize_write_scope
+        with tempfile.TemporaryDirectory() as temporary:
+            store = TaskStore(Path(temporary) / "workbench.db")
+            task = create_lesson_task(store, 7, temporary, execution_mode="codex")
+            prepared = prepare_task(store, task["id"])
+            scopes = prepared["write_scope"]
+            self.assertTrue(CodexExecutionRunner._allowed("hook_staging/hooks.json", scopes))
+            self.assertTrue(CodexExecutionRunner._allowed("hook_staging/quality_gate.py", scopes))
+            self.assertFalse(CodexExecutionRunner._allowed(".codex/hooks.json", scopes))
+            self.assertFalse(CodexExecutionRunner._allowed(".codex/hooks/quality_gate.py", scopes))
+            self.assertIn("人工审查后安装", prepared["spec"]["constraints"])
+            self.assertIn("真实事件", prepared["spec"]["acceptance"])
+        with self.assertRaises(ValueError):
+            normalize_write_scope([".codex/hooks"])
+
     def test_missing_baseline_cannot_look_ready(self) -> None:
         result = lesson_baseline_status(".", 4, revision_resolver=lambda _root, _revision: None)
         self.assertEqual(result["baseline_ref"], "course/l04-start")

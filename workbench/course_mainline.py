@@ -127,8 +127,10 @@ LESSONS: tuple[LessonContract, ...] = (
             evals=("stock_never_negative",)),
     _lesson(7, "用 Codex Hooks 建立本地护栏", "build", "提交前本地护栏", "交付销售订单创建",
             "通过工作台交付销售订单创建，并让本地护栏复验订单金额和明细一致。",
-            refs=("ORDER:COURSE-DEMO",), scope=("flowerp/", "eval/", "tests/", ".codex/hooks"),
-            acceptance=("合法明细生成草稿订单和稳定身份。", "非法数量被拒绝且不留下订单。", "订单总额等于明细合计。"),
+            refs=("ORDER:COURSE-DEMO",), scope=("flowerp/", "eval/", "tests/", "hook_staging/"),
+            acceptance=("合法明细生成草稿订单和稳定身份。", "非法数量被拒绝且不留下订单。", "订单总额等于明细合计。",
+                        "待审查的 Hook 配置和处理器保存在 hook_staging/，调用统一 Harness。",
+                        "人工审查后安装到实际候选，保存真实事件的违规反馈与恢复复验；仅业务 Eval 通过不代表 Hook 验收完成。"),
             evals=("order_total_matches_lines",)),
     _lesson(8, "把同一套 Eval 接入 CI", "build", "远程复验与证据信封", "交付原子预占",
             "在同一套 Eval 的本地与 CI 复验下实现销售订单原子预占，缺货时整单回滚。",
@@ -191,6 +193,13 @@ def render_lesson_spec(number: int, additional_eval_cases: tuple[str, ...] = ())
     evals = "、".join(f"`{item}`" for item in selected_evals) or "本讲合同中的正反路径"
     acceptance = "\n".join(f"{index}. {item}" for index, item in enumerate(lesson.acceptance, 1))
     scope = "、".join(f"`{item}`" for item in lesson.write_scope)
+    hook_constraints = (
+        "\n- L07 先生成 `hook_staging/hooks.json` 与 `hook_staging/quality_gate.py`，人工审查后安装到实际候选的 "
+        "`.codex/hooks.json` 与 `.codex/hooks/quality_gate.py`。待审查文件不会自动启用；Codex 执行不得写入受保护的 `.codex`。"
+        "\n- 保留安装前内容与来源、审查者及安装后指纹；已有 Hook 配置须审查合并，不能覆盖其他项目规则。"
+        "\n- 安装与真实触发属于独立人工复验步骤，必须与同一任务候选关联；暂存文件或模拟事件不能替代真实触发证据。"
+        if number == 7 else ""
+    )
     text = f"""# {lesson.requirement_id}｜L{number:02d} {lesson.title}
 
 ## 来源
@@ -225,6 +234,7 @@ FDE 循环：{LESSON_STORY[number]['fde_loop']}。
 - 本讲复用 Eval：{evals}
 - 库存、订单、采购和任务状态必须遵守 `AGENTS.md` 的不可破坏规则。
 - 执行结果必须保存需求、Diff、命令、Eval 和人工决定之间的稳定引用。
+{hook_constraints}
 
 ## 验收用例
 

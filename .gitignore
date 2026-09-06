@@ -12,7 +12,6 @@ lesson-*-submission/
 .tmp/
 
 .l01-ppt-build/
-docs/
 deliverables/
 
 # Distribution / packaging
