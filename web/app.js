@@ -52,7 +52,8 @@ async function api(path, options) {
   const payload=contentType.indexOf("application/json")>=0 ? await response.json() : await response.text();
   if (!response.ok && acceptStatuses.indexOf(response.status)<0) {
     if (response.status===401 && path.indexOf("/auth/login")<0) showAuth("login");
-    throw new Error(payload && payload.error ? payload.error.message : (payload.message||"请求失败 ("+response.status+")"));
+    const error=new Error(payload && payload.error ? payload.error.message : (payload.message||"请求失败 ("+response.status+")"));
+    error.status=response.status;throw error;
   }
   return payload;
 }
@@ -112,8 +113,20 @@ async function boot() {
   try {
     const setup=await api("/api/v1/setup/status");
     if (!setup.initialized) return showAuth("setup");
-    if (state.token) { try { state.user=await api("/api/v1/auth/me"); } catch (_) { clearSession(); } }
-    if (!state.user && setup.authentication_required===false) state.user=await api("/api/v1/auth/me");
+    try { state.user=await api("/api/v1/auth/me"); }
+    catch (error) {
+      if(error.status!==401) throw error;
+      const hadToken=!!state.token;
+      clearSession();
+      if(hadToken) {
+        try { state.user=await api("/api/v1/auth/me"); }
+        catch(cookieError) { if(cookieError.status!==401) throw cookieError; }
+      }
+      // A stale HttpOnly cookie is expired by the server's 401 response.
+      // Only local installations that explicitly disable authentication may
+      // retry this read; never replay a business write or bypass login.
+      if(!state.user && setup.authentication_required===false) state.user=await api("/api/v1/auth/me");
+    }
     if (!state.user) return showAuth("login");
     bindUser();showApp();navigate(location.hash.slice(1)||"dashboard");
   } catch (error) { showAuth("login");$("#login-error").textContent=error.message; }
@@ -131,14 +144,14 @@ $("#setup-form").addEventListener("submit",async function(event){
   try {
     await api("/api/v1/setup/bootstrap",{method:"POST",body:JSON.stringify(values)});
     await signIn({organization:"DEFAULT",username:values.username,password:values.password});
-    toast("系统初始化完成，已进入工作台");
+    toast("系统初始化完成，已进入客户项目 FlowERP");
   } catch(error) {
     try {
       const setup=await api("/api/v1/setup/status");
       if(setup.initialized){
         try {
           await signIn({organization:"DEFAULT",username:values.username,password:values.password});
-          toast("系统已初始化，已为您进入工作台");return;
+          toast("系统已初始化，已为您进入客户项目 FlowERP");return;
         } catch(_) {
           showAuth("login");$("#login-form [name=organization]").value="DEFAULT";
           $("#login-form [name=username]").value=values.username||"admin";

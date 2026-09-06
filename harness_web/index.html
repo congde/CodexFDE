@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>我的 AI 研发工作台 · FlowERP</title>
-  <link rel="stylesheet" href="./styles.css?v=27">
+  <link rel="stylesheet" href="./styles.css?v=35">
 </head>
 <body>
   <div class="app" id="app">
@@ -47,12 +47,15 @@
 
       <div class="sb-foot">
         <label class="actor">老板身份（你）
-          <input id="actor" placeholder="你的名字" value="boss" autocomplete="username">
+          <input id="actor" list="actor-options" placeholder="你的名字" value="boss" autocomplete="username">
         </label>
-        <div class="role-quick" id="employee-chips" title="流水线职责投影；是否由真实模型执行以运行时 Provider 为准">
-          <span class="chip-mini" data-emp="agent:spec">规格员</span>
-          <span class="chip-mini" data-emp="agent:coder">工程师</span>
-          <span class="chip-mini" data-emp="agent:reviewer">质检员</span>
+        <datalist id="actor-options"></datalist>
+        <div class="role-quick" id="actor-recents" aria-label="最近使用的老板身份"></div>
+        <p class="actor-hint" id="actor-hint">写操作与终审以这个名字入账</p>
+        <div class="role-quick" id="employee-chips" role="group" aria-label="Harness 运行时视角" title="点视角可筛选过程账本；不是独立登录账号">
+          <button type="button" class="chip-mini" data-emp="user">你（User）</button>
+          <button type="button" class="chip-mini" data-emp="agent">Agent</button>
+          <button type="button" class="chip-mini" data-emp="tool">工具</button>
         </div>
         <div class="sb-links">
           <button type="button" id="open-help" class="linkish">说明</button>
@@ -76,6 +79,7 @@
             <p>从真实 FlowERP 需求出发，用交付结果持续升级工作台。</p>
           </div>
           <div class="dashboard-actions">
+            <button type="button" id="dashboard-run-eval" class="ghost-btn">复验 Blocking Eval</button>
             <button type="button" id="dashboard-export" class="ghost-btn">导出证据快照</button>
             <button type="button" id="dashboard-new" class="send">＋ 新建事项</button>
           </div>
@@ -99,10 +103,10 @@
           </section>
 
           <section class="metric-grid" aria-label="今日交付指标">
-            <article><span>进行中</span><strong id="metric-active">0</strong><small>正在执行的交付</small></article>
-            <article><span>待终审</span><strong id="metric-review">0</strong><small>需要你的判断</small></article>
-            <article><span>阻断失败</span><strong id="metric-blocked">0</strong><small>不能伪装成成功</small></article>
-            <article><span>已完成</span><strong id="metric-completed">0</strong><small>有证据的交付</small></article>
+            <button type="button" class="metric" data-session-filter="active"><span>进行中</span><strong id="metric-active">0</strong><small>打开正在执行的交付</small></button>
+            <button type="button" class="metric" data-session-filter="review"><span>待终审</span><strong id="metric-review">0</strong><small>打开需要你判断的交付</small></button>
+            <button type="button" class="metric" data-session-filter="terminal"><span>阻断失败</span><strong id="metric-blocked">0</strong><small>打开失败与死信证据</small></button>
+            <button type="button" class="metric" data-session-filter="terminal"><span>已完成</span><strong id="metric-completed">0</strong><small>打开已有证据的交付</small></button>
           </section>
 
           <section id="attention-panel" class="attention-panel" aria-live="polite"></section>
@@ -112,6 +116,12 @@
               <section class="work-card" id="today-card">
                 <div class="card-head"><div><span class="card-kicker">TODAY</span><h2>今日交付</h2></div><button type="button" class="linkish" data-open-delivery>查看全部</button></div>
                 <div id="today-task-list" class="today-task-list"></div>
+              </section>
+
+              <section class="work-card" id="course-card">
+                <div class="card-head"><div><span class="card-kicker">COURSE CONTRACT</span><h2>16 讲可执行合同</h2></div><span id="course-ready-chip" class="status-chip">读取中</span></div>
+                <p class="card-intro">点一讲会把该讲的真实需求填进事项与决策，而不是只展示标题。</p>
+                <div id="course-lesson-list" class="course-lesson-list"></div>
               </section>
 
               <section class="work-card" id="capability-card">
@@ -128,19 +138,26 @@
 
             <div class="dashboard-column">
               <section class="work-card accent-card" id="quality-card">
-                <div class="card-head"><div><span class="card-kicker">QUALITY EVIDENCE</span><h2>最近一次质量证据</h2></div><span id="quality-dot" class="live-dot"></span></div>
+                <div class="card-head"><div><span class="card-kicker">QUALITY EVIDENCE</span><h2>最近一次质量证据</h2></div>
+                  <div class="card-head-actions">
+                    <span id="quality-dot" class="live-dot"></span>
+                    <button type="button" id="quality-open-task" class="linkish">打开交付</button>
+                  </div>
+                </div>
                 <div id="quality-summary" class="quality-summary"></div>
               </section>
 
               <section class="work-card" id="flowerp-card">
                 <div class="card-head"><div><span class="card-kicker">PRODUCT CONTRACT</span><h2>FlowERP 业务规则</h2></div><span id="flow-rules-status" class="status-chip">等待 Eval</span></div>
-                <p class="card-intro">规则来自项目合同；绿勾只表示最近一次 Blocking Eval 中对应用例通过。</p>
+                <p class="card-intro">规则来自项目合同；绿勾只表示最近一次 Blocking Eval 中对应用例通过。点规则会打开对应的真实产品页。</p>
+                <div id="flowerp-live" class="flowerp-live"></div>
                 <div id="flow-rules" class="rule-list"></div>
               </section>
 
               <section class="work-card" id="evolution-card">
-                <div class="card-head"><div><span class="card-kicker">EVOLUTION SUMMARY</span><h2>反馈与进化摘要</h2></div><span id="evolution-count" class="status-chip">0 条</span></div>
+                <div class="card-head"><div><span class="card-kicker">EVOLUTION SUMMARY</span><h2>反馈与进化</h2></div><span id="evolution-count" class="status-chip">0 条</span></div>
                 <div id="feedback-summary" class="evolution-summary"></div>
+                <div id="feedback-actions" class="feedback-actions"></div>
               </section>
 
               <section class="work-card compact-card" id="plugin-card">
@@ -203,7 +220,7 @@
         </div>
       </section>
 
-      <section id="delivery-view" class="delivery-view" hidden>
+      <section id="delivery-view" class="delivery-view tab-chat" hidden>
       <header class="conv-header">
         <div class="title-block">
           <h1 id="chat-title">新交付</h1>
@@ -212,15 +229,15 @@
         <div class="header-right">
           <button type="button" id="back-dashboard" class="ghost-btn">← 工作台总览</button>
           <span id="task-badge" class="pill">空闲</span>
-          <div class="view-tabs" role="tablist">
-            <button type="button" class="tab active" data-view="chat" role="tab">对话</button>
-            <button type="button" class="tab" data-view="trajectory" role="tab">过程</button>
+          <div class="view-tabs" role="tablist" aria-label="交付记录">
+            <button type="button" class="tab active" data-view="chat" role="tab" aria-selected="true" aria-controls="view-chat">对话<small>Thread / Session</small></button>
+            <button type="button" class="tab" data-view="trajectory" role="tab" aria-selected="false" aria-controls="view-trajectory">过程<small>Event stream</small></button>
           </div>
           <div class="more-wrap" id="session-actions" hidden>
             <button type="button" id="more-toggle" class="ghost-btn" aria-expanded="false" aria-haspopup="true">更多</button>
             <div class="more-menu" id="more-menu" hidden>
               <button type="button" id="btn-fork">复制会话再试</button>
-              <button type="button" id="btn-pause">暂停</button>
+              <button type="button" id="btn-pause">暂停 · Interrupt</button>
               <button type="button" id="btn-resume">继续</button>
               <button type="button" id="btn-close">结束会话</button>
               <button type="button" id="btn-export">下载证据包</button>
@@ -245,7 +262,7 @@
       <div id="collab-bar" class="collab-bar" hidden></div>
 
       <div class="conv-body" data-conversation-scroll>
-        <div id="view-chat" class="view">
+        <div id="view-chat" class="view" role="tabpanel">
           <div id="empty-state" class="hero">
             <span class="card-kicker">APPROVED DELIVERY ONLY</span>
             <h2>交付区只接收已经批准的 Build 事项</h2>
@@ -258,9 +275,9 @@
             <button type="button" id="empty-go-decision" class="send">记录新事项</button>
             <p class="example-title">可用这些信号练习判断；点击后不会直接创建 Task</p>
             <div class="example-prompts">
-              <button type="button" class="example" data-prompt="给 FlowERP 增加：创建订单时若可用库存不足则明确失败，且不得预占库存。">库存不足拒单</button>
-              <button type="button" class="example" data-prompt="给 FlowERP 增加：同一入库幂等键只能生效一次，重复提交返回已有结果。">入库幂等</button>
-              <button type="button" class="example" data-prompt="给 FlowERP 增加：采购补货必须人工审批后才能入库。">采购须审批</button>
+              <button type="button" class="example" data-prompt="给 FlowERP 增加：创建订单时若可用库存不足则明确失败，且不得预占库存。" data-source="课程练习信号" data-areas="inventory,order" data-goal="库存不足时原子拒单并返回明确原因" data-acceptance="库存不足时订单失败且不产生预占&#10;成功路径保持可追溯" data-evidence="客服反馈：库存不足的订单仍显示处理中">库存不足拒单</button>
+              <button type="button" class="example" data-prompt="给 FlowERP 增加：同一入库幂等键只能生效一次，重复提交返回已有结果。" data-source="课程练习信号" data-areas="inventory" data-goal="同一入库幂等键只生效一次" data-acceptance="首次入库增加库存&#10;重复提交返回已有结果且库存不变" data-evidence="仓库重复扫码导致库存被加两次">入库幂等</button>
+              <button type="button" class="example" data-prompt="给 FlowERP 增加：采购补货必须人工审批后才能入库。" data-source="课程练习信号" data-areas="purchase,inventory" data-goal="未审批采购不得改变库存" data-acceptance="未审批采购建议不得入库&#10;审批后可用幂等键入库" data-evidence="运营绕过审批直接把采购建议当入库">采购须审批</button>
             </div>
           </div>
           <div id="transcript-toolbar" class="transcript-toolbar" hidden>
@@ -270,16 +287,31 @@
           <div id="message-stream" class="transcript" hidden></div>
         </div>
 
-        <div id="view-trajectory" class="view" hidden>
-          <div class="traj-overview" id="traj-overview">过程账本：谁在何时做了什么（答辩复盘用）</div>
-          <div class="filter-row traj-filters" id="traj-filters" role="tablist">
+        <div id="view-trajectory" class="view traj-view" hidden role="tabpanel">
+          <div class="traj-overview" id="traj-overview">Event stream / Trajectory：谁在何时做了什么（答辩复盘用）</div>
+          <div class="filter-row traj-filters" id="traj-filters" role="tablist" aria-label="按运行时视角筛选">
             <button type="button" class="filter active" data-traj="all">全部</button>
-            <button type="button" class="filter" data-traj="boss">老板</button>
-            <button type="button" class="filter" data-traj="agent:spec">规格员</button>
-            <button type="button" class="filter" data-traj="agent:coder">工程师</button>
-            <button type="button" class="filter" data-traj="agent:reviewer">质检员</button>
+            <button type="button" class="filter" data-traj="user">你（User）</button>
+            <button type="button" class="filter" data-traj="agent">Agent</button>
+            <button type="button" class="filter" data-traj="tool">工具</button>
           </div>
-          <div id="traj-table" class="traj-table"></div>
+          <div class="filter-row traj-filters" id="traj-source-filters" role="tablist" aria-label="按来源筛选">
+            <button type="button" class="filter active" data-traj-source="all">全部来源</button>
+            <button type="button" class="filter" data-traj-source="turn">turn/step</button>
+            <button type="button" class="filter" data-traj-source="tool">tool</button>
+            <button type="button" class="filter" data-traj-source="llm">模型</button>
+            <button type="button" class="filter" data-traj-source="task">交付</button>
+          </div>
+          <p class="traj-source-note">turn/step、tool、模型是 Harness 内核；交付是课程 <code>task/*</code> 扩展。</p>
+          <div class="traj-workspace">
+            <div id="traj-table" class="traj-table"></div>
+            <aside id="traj-inspector" class="traj-inspector" aria-live="polite">
+              <div class="explain-card">
+                <p class="explain-kicker">Event stream</p>
+                <p>点左侧一条记录，查看完整事件。这是工作台动作追溯，不是 FlowERP 业务单据。</p>
+              </div>
+            </aside>
+          </div>
         </div>
       </div>
 
@@ -323,32 +355,49 @@
 
   <dialog id="help-dialog">
     <form method="dialog" class="dlg">
-      <header><h2>这是什么？</h2><button value="close" class="icon-btn">✕</button></header>
+      <header><h2>这是什么？</h2><button type="button" class="icon-btn" data-close-dialog aria-label="关闭">✕</button></header>
+      <div class="dlg-body">
       <div class="help-body">
         <p><strong>FlowERP</strong>：要持续交付的电商 ERP（库存、订单、采购）。</p>
         <p><strong>Harness</strong>：研发自动化工作台——接需求、受控改代码、跑 Eval、留证据、老板终审。</p>
-        <p><strong>职责投影</strong>：规格员 / 工程师 / 质检员首先是流水线节点和事件标签，不等于三个独立 Agent。当前是否有真实模型执行，以设置中的 LLM Provider 为准；<code>template</code> 只代表模板驱动。</p>
+        <p><strong>两层词汇</strong>：交付轨道按软件研发分工：业务 → 产品（兼 PM）→ 开发 → 测试 → Leader。Harness 运行时对照 DeepSeek / Codex：User、Agent、Tools、Session/Thread、Turn/Step、Event stream、Interrupt。侧栏芯片是运行时视角，不是三个独立登录账号。</p>
+        <p><strong>两种审批</strong>：交付终审是老板/Leader 具名通过或驳回；工具 ask 是 <code>approval=ask</code> 一次性放行。二者不是同一件事，8010 也不做成审批队列产品。</p>
         <p><strong>OPC 定位</strong>：多 Agent 是可选挑战，<strong>不是</strong>大纲 L01～L16 通过标准；结业仍以 Eval、具名人审和证据链为准。</p>
-        <p><strong>职责分离</strong>：实现职责负责执行，质检职责负责挑刺，只有老板能终审通过；自动化 actor 不能 approve。</p>
+        <p><strong>职责分离</strong>：开发负责执行，测试负责挑刺，只有老板/Leader 能终审通过；自动化 actor 不能 approve。</p>
         <p><strong>侧栏筛选</strong>：全部 / 进行中 / 待验收 / 终态。</p>
         <p><strong>死信</strong>：自动化耗尽后的终态。用「复制会话再试」并启用改代码继续。</p>
-        <p><strong>顶部进度条</strong>：跟踪「这一次改 FlowERP」的流水线与当前职责。</p>
-        <p><strong>过程页</strong>：事件账本（含 agent:* 职责 actor），用于复盘和答辩。</p>
+        <p><strong>顶部进度条</strong>：跟踪「这一次改 FlowERP」的交付轨道与当前角色。</p>
+        <p><strong>过程页</strong>：对照 DeepSeek Trajectory / Codex event stream 的只追加 Session 日志。按 User / Agent / 工具，或按来源（turn/step、tool、模型、交付）筛选；前三项是 Harness 内核，交付是课程 <code>task/*</code> 扩展。</p>
+        <p><strong>对照 DeepSeek Harness</strong>：设置里的 Profile / dump-config 对应 <code>dsh --dump-config</code>。本仓库是教学交付 Harness，不是 Cordis，也不能安装官方 <code>@deepseek-ai/*</code> 插件。</p>
+        <p><strong>对照 Codex Harness</strong>：对话对应 Thread / Session；过程对应 event stream；暂停对应 Interrupt。没有接入 <code>openai/codex</code> app-server JSON-RPC，模型也不随 Harness 开源。</p>
+      </div>
       </div>
     </form>
   </dialog>
 
   <dialog id="workspace-dialog">
     <form method="dialog" class="dlg">
-      <header><h2>选择工作区</h2><button value="cancel" class="icon-btn">✕</button></header>
+      <header><h2>选择工作区</h2><button type="button" class="icon-btn" data-close-dialog aria-label="关闭">✕</button></header>
+      <div class="dlg-body">
       <div id="workspace-options" class="ws-list"></div>
       <p class="note">默认应是 FlowERP 仓库。没有项目就打开「设置」注册，或用 <code>serve-web --bootstrap</code>。</p>
+      </div>
     </form>
   </dialog>
 
   <dialog id="settings">
-    <form method="dialog" class="dlg wide">
-      <header><h2>设置</h2><button value="close" class="icon-btn">✕</button></header>
+    <form method="dialog" class="dlg wide" novalidate>
+      <header><h2>设置</h2><button type="button" class="icon-btn" data-close-dialog aria-label="关闭设置">✕</button></header>
+      <div class="dlg-body">
+      <section>
+        <h3>Profile 组合</h3>
+        <p class="note">对照 <code>dsh --dump-config</code> 与 Codex config。这是教学 seam 组合，不是 Cordis 或 openai/codex 运行时。</p>
+        <label>当前 Profile
+          <select id="settings-profile" class="mini"></select>
+        </label>
+        <div id="seam-map" class="card-grid"></div>
+        <pre id="dump-config" class="dump-config" aria-label="dump-config">尚未加载</pre>
+      </section>
       <section>
         <h3>运行能力</h3>
         <div id="capability-cards" class="card-grid"></div>
@@ -367,16 +416,22 @@
         <div id="plugin-cards" class="plugin-list"></div>
         <div id="tool-cards" class="card-grid"></div>
       </section>
+      </div>
+      <footer class="dlg-foot">
+        <button type="button" class="ghost-btn" data-close-dialog>关闭</button>
+      </footer>
     </form>
   </dialog>
 
   <dialog id="review-dialog">
-    <form method="dialog" class="dlg review-dlg" id="review-form">
-      <header><h2 id="review-dialog-title">终审交付</h2><button value="cancel" class="icon-btn">✕</button></header>
+    <form method="dialog" class="dlg review-dlg" id="review-dialog-form">
+      <header><h2 id="review-dialog-title">终审交付</h2><button type="button" class="icon-btn" data-close-dialog aria-label="关闭">✕</button></header>
+      <div class="dlg-body">
       <input id="review-decision" type="hidden">
       <label for="review-note">判断依据</label>
       <textarea id="review-note" rows="5" placeholder="说明通过或驳回的证据与理由…"></textarea>
       <p class="note">该记录会以当前老板身份写入证据链；自动化 actor 不能代替你终审。</p>
+      </div>
       <div class="dialog-actions">
         <button type="button" id="review-cancel" class="ghost-btn">取消</button>
         <button type="button" id="review-confirm" class="send">确认提交</button>
@@ -386,6 +441,6 @@
 
   <select id="project-id" hidden></select>
   <div id="toast" role="status" aria-live="polite"></div>
-  <script src="./app.js?v=27" defer></script>
+  <script src="./app.js?v=35" defer></script>
 </body>
 </html>

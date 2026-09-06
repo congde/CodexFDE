@@ -24,7 +24,9 @@ class AgentRosterTests(unittest.TestCase):
     def test_default_employees_and_sod(self) -> None:
         items = list_employees()
         self.assertEqual(3, len(items))
-        self.assertEqual("规格员", resolve("agent:spec").display_name)
+        self.assertEqual("产品", resolve("agent:spec").display_name)
+        self.assertEqual("开发", resolve("agent:coder").display_name)
+        self.assertEqual("测试", resolve("agent:reviewer").display_name)
         self.assertEqual("agent:coder", duty_actor_for_status("executing"))
         self.assertEqual("agent:reviewer", duty_actor_for_status("review"))
         assert_coder_reviewer_sod("agent:coder", "agent:reviewer")

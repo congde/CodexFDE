@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="color-scheme" content="light">
   <meta name="robots" content="noindex,nofollow">
-  <title>FlowERP · 经营管理系统</title>
+  <title>FlowERP · 客户项目</title>
   <link rel="stylesheet" href="./styles.css?v=25">
 </head>
 <body>
@@ -29,7 +29,7 @@
       <form id="login-form" class="auth-form hidden">
         <div class="mobile-brand"><span class="brand-mark">F</span> FlowERP</div>
         <div class="auth-kicker"><span></span> 企业安全入口</div>
-        <p class="eyebrow">欢迎回来</p><h2>登录业务工作台</h2><p class="muted">进入统一经营视图，继续处理今日业务。</p>
+        <p class="eyebrow">欢迎回来</p><h2>登录客户项目 FlowERP</h2><p class="muted">这是接入工作台的电商客户系统，不是个人研发工作台。工作台在 :8001。</p>
         <label>组织代码<input name="organization" value="DEFAULT" autocomplete="organization" required></label>
         <label>用户名<input name="username" autocomplete="username" required autofocus></label>
         <label>密码<input name="password" type="password" autocomplete="current-password" required></label>
@@ -63,7 +63,7 @@
 
   <div id="app-shell" class="app-shell hidden">
     <aside class="sidebar" id="sidebar">
-      <a class="brand" href="#dashboard"><span class="brand-mark">F</span><span><b>FlowERP</b><small>OPERATIONS ERP</small></span></a>
+      <a class="brand" href="#dashboard"><span class="brand-mark">F</span><span><b>FlowERP</b><small>客户项目 · :8000</small></span></a>
       <nav id="main-nav">
         <p>经营总览</p>
         <a href="#dashboard" data-page="dashboard"><i>⌂</i><span>经营驾驶舱</span></a>
@@ -78,7 +78,8 @@
         <a href="#partners" data-page="partners"><i>◎</i><span>客户与供应商</span></a>
         <a href="#audit" data-page="audit"><i>◉</i><span>审计日志</span></a>
         <a href="#delivery" data-page="delivery"><i>✓</i><span>交付证据</span></a>
-        <a href="http://127.0.0.1:8010" target="_blank" rel="noopener"><i>↗</i><span>打开独立 Harness</span></a>
+        <a href="http://127.0.0.1:8001" target="_blank" rel="noopener"><i>↗</i><span>打开个人研发工作台</span></a>
+        <a href="http://127.0.0.1:8010" target="_blank" rel="noopener"><i>↗</i><span>打开可选 Harness</span></a>
         <a href="#settings" data-page="settings"><i>⚙</i><span>系统与用户</span></a>
       </nav>
       <div class="sidebar-foot"><span class="health-dot"></span><span id="health-label">服务就绪</span><small>单实例 · SQLite WAL</small></div>
@@ -192,7 +193,7 @@
         </section>
 
         <section class="page hidden" id="page-delivery">
-          <div class="page-heading"><div><p class="eyebrow">DELIVERY WORKBENCH</p><h1>研发交付工作台</h1><p>从需求、Spec、执行、Eval 到审核结论，保留完整状态与证据链。</p></div><button class="button" id="delivery-refresh" type="button">刷新证据</button></div>
+          <div class="page-heading"><div><p class="eyebrow">CUSTOMER PROJECT EVIDENCE</p><h1>客户项目内的交付证据</h1><p>这里只投影 FlowERP 侧看到的任务证据。个人研发工作台在 :8001，使用独立的 workbench.db。</p></div><button class="button" id="delivery-refresh" type="button">刷新证据</button></div>
           <div class="delivery-grid">
             <article class="panel delivery-create">
               <header><div><h2>新建交付任务</h2><p>让 Codex 真正修改代码，再由独立 Eval 和具名人工验收把关</p></div></header>
@@ -231,6 +232,6 @@
     </div>
   </div>
   <div class="toast-stack" id="toast-stack" aria-live="polite"></div>
-  <script src="./app.js?v=40" defer></script>
+  <script src="./app.js?v=41" defer></script>
 </body>
 </html>

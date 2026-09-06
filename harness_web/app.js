@@ -2,19 +2,22 @@
 
 const $ = (s) => document.querySelector(s);
 const ACTOR_KEY = "harness-operator";
+const ACTOR_RECENTS_KEY = "harness-operator-recents";
 const WORKSPACE_KEY = "harness-workspace";
 const PROFILE_KEY = "harness-profile";
 const FILTER_KEY = "harness-session-filter";
 const TRAJ_ACTOR_KEY = "harness-traj-actor";
+const TRAJ_SOURCE_KEY = "harness-traj-source";
+const RUNTIME_FILTERS = ["user", "agent", "tool"];
 const WORKBENCH_VIEW_KEY = "harness-workbench-view";
 const POLL_MS = 1400;
 const COURSE_STATUS_TIMEOUT_MS = 10000;
 const BUSY = new Set(["queued", "spec_ready", "executing", "evaluating", "rework"]);
 const TERMINAL = new Set(["completed", "failed", "dead_letter"]);
 const DEFAULT_EMPLOYEES = [
-  { id: "agent:spec", display_name: "规格员", duty: "澄清需求并写 Spec" },
-  { id: "agent:coder", display_name: "工程师", duty: "受控改代码并跑 Eval" },
-  { id: "agent:reviewer", display_name: "质检员", duty: "挑刺；不能代替老板终审" },
+  { id: "agent:spec", display_name: "产品", duty: "澄清业务信号、兼 PM 范围与验收点、写 Spec" },
+  { id: "agent:coder", display_name: "开发", duty: "受控改代码并跑 Eval" },
+  { id: "agent:reviewer", display_name: "测试", duty: "挑刺；不能代替老板/Leader 终审" },
 ];
 const DUTY_BY_STATUS = {
   queued: "agent:spec",
@@ -40,6 +43,7 @@ const RAIL = [
   {
     id: "request",
     label: "需求",
+    role: "业务",
     match: ["queued"],
     title: "① 接到需求",
     summary: "自然语言需求入队，准备生成任务 Spec。",
@@ -49,15 +53,17 @@ const RAIL = [
   {
     id: "spec",
     label: "规格",
+    role: "产品",
     match: ["spec_ready"],
     title: "② 写好规格",
-    summary: "任务级 Spec 已生成，可进入受控改代码或验证。",
+    summary: "任务级 Spec 已生成，可进入受控改代码或验证。产品兼 PM：框定范围与验收点。",
     model_hint: "先读 Spec；写入必须落在 write_scope。",
     actions: ["生成 Spec", "对齐验收点"],
   },
   {
     id: "code",
     label: "改代码",
+    role: "开发",
     match: ["executing", "rework"],
     title: "③ 改 FlowERP 代码",
     summary: "在 flowerp/tests 等范围内修改产品代码。",
@@ -67,6 +73,7 @@ const RAIL = [
   {
     id: "eval",
     label: "验收",
+    role: "测试",
     match: ["evaluating"],
     title: "④ 跑阻断级 Eval",
     summary: "用 Eval 验证 FlowERP 业务规则未被破坏。",
@@ -76,11 +83,12 @@ const RAIL = [
   {
     id: "human",
     label: "老板终审",
+    role: "Leader",
     match: ["review", "completed", "failed", "dead_letter"],
     title: "⑤ 老板终审",
-    summary: "自动化停工；质检职责可挑刺，只有老板能通过/驳回。",
+    summary: "自动化停工；测试可挑刺，只有老板/Leader 能通过/驳回。",
     model_hint: "review 停自动改代码；等待老板终审，不要假装已 approve。",
-    actions: ["质检挑刺", "老板通过/驳回", "复制会话再试"],
+    actions: ["测试挑刺", "老板通过/驳回", "复制会话再试"],
   },
 ];
 
@@ -89,7 +97,7 @@ const STEP_HELP = {
   spec_ready: { title: "规格已写好", blurb: "自然语言已整理成任务 Spec，下一步改代码。" },
   executing: { title: "正在改 FlowERP", blurb: "在 flowerp/tests 等写入范围内修改产品代码。" },
   evaluating: { title: "正在跑验收", blurb: "阻断级 Eval 检查库存/订单/采购等规则是否被破坏。" },
-  review: { title: "等老板终审", blurb: "自动化已停工。质检意见可见；请老板具名通过或驳回。" },
+  review: { title: "等老板终审", blurb: "自动化已停工。测试意见可见；请老板/Leader 具名通过或驳回。" },
   rework: { title: "需要返工", blurb: "验收未过或被驳回，可再执行。" },
   completed: { title: "交付已接受", blurb: "你已具名接受这次 FlowERP 增量。" },
   failed: { title: "交付失败", blurb: "本轮未完成，可看过程记录或复制会话再试。" },
@@ -117,14 +125,37 @@ let state = {
   expandedRailId: null,
   railAutoOpened: false,
   sessionFilter: localStorage.getItem(FILTER_KEY) || "all",
-  trajActorFilter: localStorage.getItem(TRAJ_ACTOR_KEY) || "all",
+  trajActorFilter: normalizeRuntimeFilter(localStorage.getItem(TRAJ_ACTOR_KEY) || "all"),
+  trajSourceFilter: localStorage.getItem(TRAJ_SOURCE_KEY) || "all",
+  dumpConfig: null, composition: null,
   workbenchView: localStorage.getItem(WORKBENCH_VIEW_KEY) || "dashboard",
   health: null, courseStatus: null, pluginRuntime: null, pluginEvents: [],
   feedbackSummary: null, evolutionSummary: null, tasks: [], initiatives: [],
+  courseLessons: [], flowerpStatus: null, verifyingEval: false,
   showAllMessages: false, teamExpanded: false,
+  dutyFocus: "",
 };
 let courseStatusController = null;
 let courseStatusRequestId = 0;
+state.dutyFocus = RUNTIME_FILTERS.includes(state.trajActorFilter) ? state.trajActorFilter : "";
+
+function normalizeRuntimeFilter(value) {
+  const raw = String(value || "all").trim();
+  if (raw === "all") return "all";
+  if (raw === "user" || raw === "boss") return "user";
+  if (raw === "tool") return "tool";
+  if (raw === "agent" || raw.startsWith("agent:")) return "agent";
+  return "all";
+}
+
+function runtimeFilterLabel(id) {
+  return { user: "你（User）", agent: "Agent", tool: "工具", all: "全部" }[id] || id;
+}
+
+function currentRailRole() {
+  const step = RAIL[railIndex(currentStatus())];
+  return (step && step.role) || "—";
+}
 
 function esc(v) {
   return String(v ?? "").replace(/[&<>"']/g, (c) => ({
@@ -155,13 +186,88 @@ function actor() {
   return value;
 }
 
+function rememberActor(name) {
+  const value = String(name || "").trim();
+  if (!value || value.startsWith("agent:")) return;
+  let recents = [];
+  try { recents = JSON.parse(localStorage.getItem(ACTOR_RECENTS_KEY) || "[]"); } catch (err) { recents = []; }
+  if (!Array.isArray(recents)) recents = [];
+  localStorage.setItem(
+    ACTOR_RECENTS_KEY,
+    JSON.stringify([value, ...recents.filter((item) => item !== value)].slice(0, 8)),
+  );
+}
+
+function knownBossActors() {
+  let recents = [];
+  try { recents = JSON.parse(localStorage.getItem(ACTOR_RECENTS_KEY) || "[]"); } catch (err) { recents = []; }
+  const fromEvents = (state.events || []).map((event) => event.actor).filter(isBossActor);
+  const fromSessions = (state.sessions || []).flatMap((session) => [session.created_by, session.actor]);
+  const current = (($("#actor") && $("#actor").value) || localStorage.getItem(ACTOR_KEY) || "boss").trim();
+  return [...new Set(["boss", "operator-a", current, ...recents, ...fromEvents, ...fromSessions]
+    .map((name) => String(name || "").trim())
+    .filter((name) => name && !name.startsWith("agent:")))];
+}
+
+function renderActorOptions() {
+  const list = $("#actor-options");
+  if (list) {
+    list.innerHTML = knownBossActors().map((name) => `<option value="${esc(name)}"></option>`).join("");
+  }
+  const recents = $("#actor-recents");
+  if (!recents) return;
+  const current = ($("#actor").value || "").trim() || "boss";
+  const names = knownBossActors().filter((name) => name !== current).slice(0, 4);
+  recents.hidden = !names.length;
+  recents.innerHTML = names.map((name) =>
+    `<button type="button" class="chip-mini" data-actor="${esc(name)}" title="切换终审身份">${esc(name)}</button>`
+  ).join("");
+}
+
+function renderActorHint() {
+  const node = $("#actor-hint");
+  if (node) node.textContent = `写操作与终审以「${($("#actor").value || "").trim() || "boss"}」入账`;
+}
+
+function commitActor(name, { announce = false } = {}) {
+  const previous = localStorage.getItem(ACTOR_KEY) || "";
+  const value = setActor(name);
+  rememberActor(value);
+  renderActorOptions();
+  renderActorHint();
+  renderCollabBar();
+  renderReviewBanner();
+  syncComposerEnabled();
+  if (announce && previous !== value) {
+    toast(`终审身份已切换为 ${value}。后续写操作都以这个名字入账。`);
+  }
+  return value;
+}
+
 function setActor(name) {
   const value = String(name || "").trim() || "boss";
   $("#actor").value = value.startsWith("agent:") ? "boss" : value;
   localStorage.setItem(ACTOR_KEY, $("#actor").value);
-  renderCollabBar();
-  syncComposerEnabled();
   return $("#actor").value;
+}
+
+function focusDuty(empId) {
+  const id = normalizeRuntimeFilter(empId);
+  if (RUNTIME_FILTERS.includes(id)) {
+    state.dutyFocus = id;
+    state.trajActorFilter = id;
+  } else {
+    state.dutyFocus = "";
+    state.trajActorFilter = "all";
+  }
+  localStorage.setItem(TRAJ_ACTOR_KEY, state.trajActorFilter);
+  state.expandedRailId = null;
+  setWorkbenchView("delivery");
+  setView("trajectory");
+  renderEmployeeChips();
+  renderTrajectory();
+  renderCollabBar();
+  toast(`已切换到「${runtimeFilterLabel(state.trajActorFilter)}」视角。这是 Harness 运行时筛选，不是独立登录账号。`);
 }
 
 function employeeById(id) {
@@ -186,7 +292,7 @@ function roleRuntimeLabel() {
 function roleRuntimeNote() {
   return hasModelBackedAgentRuntime()
     ? `当前 LLM Provider=${llmProvider()}；角色事件由模型执行，但仍不是独立登录账号。`
-    : "当前 LLM Provider=template；三个角色只是同一流水线的职责与事件标签，不是三个独立 Agent。";
+    : "当前 LLM Provider=template；User / Agent / 工具是 Session 事件视角，不是三个独立登录。交付轨道仍是业务→产品→开发→测试→Leader。";
 }
 
 function dutyForStatus(status) {
@@ -202,18 +308,17 @@ function latestCritique() {
 }
 
 function actorActivity() {
-  const counts = { boss: 0, "agent:spec": 0, "agent:coder": 0, "agent:reviewer": 0, other: 0 };
+  const counts = { user: 0, agent: 0, tool: 0, other: 0 };
   (state.events || []).forEach((event) => {
+    const kind = String(event.kind || "");
+    if (kind.startsWith("tool/") || kind.startsWith("tools/") || kind.startsWith("approval/")) {
+      counts.tool += 1;
+    }
     const name = String(event.actor || "");
     if (!name) return;
-    if (name.startsWith("agent:")) {
-      if (counts[name] != null) counts[name] += 1;
-      else counts.other += 1;
-    } else if (["harness", "system", "llm", "automation"].includes(name)) {
-      counts.other += 1;
-    } else {
-      counts.boss += 1;
-    }
+    if (name.startsWith("agent:")) counts.agent += 1;
+    else if (isBossActor(name)) counts.user += 1;
+    else counts.other += 1;
   });
   return counts;
 }
@@ -225,10 +330,30 @@ function isBossActor(name) {
 
 function eventMatchesTrajFilter(event) {
   const filter = state.trajActorFilter || "all";
-  if (filter === "all") return true;
-  const name = String(event.actor || "");
-  if (filter === "boss") return isBossActor(name);
-  return name === filter;
+  if (filter !== "all") {
+    const name = String(event.actor || "");
+    const kind = String(event.kind || "");
+    if (filter === "user") {
+      if (!isBossActor(name)) return false;
+    } else if (filter === "agent") {
+      if (!name.startsWith("agent:")) return false;
+    } else if (filter === "tool") {
+      if (!(kind.startsWith("tool/") || kind.startsWith("tools/") || kind.startsWith("approval/"))) return false;
+    } else if (name !== filter) {
+      return false;
+    }
+  }
+  const source = state.trajSourceFilter || "all";
+  if (source === "all") return true;
+  const kind = String(event.kind || "");
+  if (source === "turn") return kind.startsWith("turn/") || kind.startsWith("step/");
+  if (source === "tool") return kind.startsWith("tool/") || kind.startsWith("tools/") || kind.startsWith("approval/");
+  if (source === "llm") {
+    return kind.startsWith("assistant/") || kind.startsWith("agent/") || kind.startsWith("llm/")
+      || kind === "user/message";
+  }
+  if (source === "task") return kind.startsWith("task/") || kind.startsWith("pipeline/") || kind.startsWith("spec/") || kind.startsWith("eval/");
+  return true;
 }
 
 function requireSession() {
@@ -314,9 +439,10 @@ function syncShell() {
 }
 
 function syncRoleChips() {
-  const duty = dutyForStatus(currentStatus());
-  document.querySelectorAll("#employee-chips .chip-mini").forEach((el) => {
-    el.classList.toggle("active", el.dataset.emp === duty);
+  const focus = state.dutyFocus || "";
+  document.querySelectorAll("#employee-chips [data-emp]").forEach((el) => {
+    el.classList.toggle("focus", Boolean(focus) && el.dataset.emp === focus);
+    el.classList.toggle("active", el.dataset.emp === focus);
   });
 }
 
@@ -328,8 +454,7 @@ function syncComposerEnabled() {
   if (ready && state.session && state.session.status === "paused") hint = "会话已暂停，在「更多」里点继续";
   else if (ready && state.session && state.session.status === "closed") hint = "会话已结束，请复制会话或新建";
   else if (ready && taskBusy()) {
-    const emp = employeeById(dutyForStatus(state.task && state.task.status));
-    hint = `职责「${emp.display_name}」处理中…`;
+    hint = `交付角色「${currentRailRole()}」处理中…`;
   } else if (ready && state.task && state.task.status === "review") {
     hint = "自动化已停工。请老板终审通过或驳回";
   } else if (ready && state.task && (state.task.status === "dead_letter" || state.task.status === "failed")) {
@@ -351,12 +476,30 @@ function syncComposerEnabled() {
 }
 
 function setView(view) {
-  state.view = view;
-  document.querySelectorAll(".tab").forEach((tab) => {
-    tab.classList.toggle("active", tab.dataset.view === view);
+  const next = view === "trajectory" ? "trajectory" : "chat";
+  const switched = state.view !== next;
+  state.view = next;
+  if (switched) {
+    state.expandedRailId = null;
+  }
+  const delivery = $("#delivery-view");
+  if (delivery) {
+    delivery.classList.toggle("tab-chat", next === "chat");
+    delivery.classList.toggle("tab-trajectory", next === "trajectory");
+  }
+  document.querySelectorAll(".view-tabs [data-view]").forEach((tab) => {
+    const on = tab.dataset.view === next;
+    tab.classList.toggle("active", on);
+    tab.setAttribute("aria-selected", on ? "true" : "false");
   });
-  $("#view-chat").hidden = view !== "chat";
-  $("#view-trajectory").hidden = view !== "trajectory";
+  $("#view-chat").hidden = next !== "chat";
+  $("#view-trajectory").hidden = next !== "trajectory";
+  if (switched) {
+    renderRail();
+    if (next === "trajectory") renderTrajectory();
+    const scroller = document.querySelector("[data-conversation-scroll]");
+    if (scroller) scroller.scrollTop = 0;
+  }
 }
 
 function messageBody(message) {
@@ -385,7 +528,7 @@ function kindLabel(kind) {
     "agent/pre-step": "给模型的上下文",
     "pipeline/stage": "流水线步骤",
     "pipeline/context": "流水线上下文",
-    "agent/critique": "质检员意见",
+    "agent/critique": "测试意见",
     "employees/assign": "班组分派",
     "task/created": "任务创建",
     "task/bound": "任务绑定",
@@ -393,14 +536,109 @@ function kindLabel(kind) {
     "turn/start": "开始一轮",
     "turn/end": "结束一轮",
     "agent/stopped": "Agent 停止",
+    "spec/ready": "任务 Spec",
+    "eval/report": "Eval 报告",
+    "task/review": "老板终审",
+    "task/event": "任务事件",
   };
   return map[kind] || kind;
+}
+
+function eventTime(value) {
+  const text = String(value || "").replace("T", " ");
+  if (!text) return "";
+  return text.slice(5, 16);
+}
+
+function actorDisplay(actor) {
+  const name = String(actor || "");
+  if (!name) return "—";
+  if (name.startsWith("agent:")) return `Agent · ${name}`;
+  return name;
+}
+
+function messagesFromEvents(events) {
+  const kinds = new Set([
+    "user/message", "assistant/message", "assistant/chunk",
+    "pipeline/stage", "agent/critique", "agent/stopped", "tool/result",
+  ]);
+  return (events || []).flatMap((event) => {
+    const kind = event.kind || "";
+    if (!kinds.has(kind)) return [];
+    const payload = event.payload || {};
+    const role = kind === "user/message"
+      ? "user"
+      : (kind === "assistant/message" || kind === "assistant/chunk" ? "assistant" : "system");
+    return [{
+      role,
+      kind,
+      content: kind === "user/message"
+        ? (payload.request || payload.content || eventPreview(event))
+        : eventPreview(event),
+      created_at: event.created_at,
+      actor: event.actor,
+      title: payload.title,
+      task_status: payload.task_status || payload.to_status,
+      stage_id: payload.stage_id,
+      suggested_decision: payload.suggested_decision,
+      reviewer_id: payload.reviewer_id || event.actor,
+    }];
+  });
+}
+
+function evidenceCards() {
+  const task = state.task;
+  const view = task && state.deliveryViewByTask[task.id];
+  if (!view) return [];
+  const cards = [];
+  const spec = view.spec || {};
+  if (spec.available) {
+    const content = spec.content || {};
+    const goal = content.goal || content.title || content.problem || "";
+    cards.push({
+      role: "system",
+      kind: "spec/ready",
+      content: goal
+        ? `任务 Spec 已就绪：${goal}`
+        : `任务 Spec 已就绪${spec.path ? ` · ${spec.path}` : ""}`,
+      created_at: task.spec_ready_at || "",
+    });
+  }
+  const evalView = view.eval || {};
+  if (evalView.available) {
+    cards.push({
+      role: "system",
+      kind: "eval/report",
+      content: `阻断级 Eval：${evalView.decision || "—"}（通过 ${evalView.blocking_passed || 0} / 失败 ${evalView.blocking_failed || 0}）`,
+    });
+  }
+  const review = view.review || {};
+  if (review.decision) {
+    cards.push({
+      role: "system",
+      kind: "task/review",
+      content: `老板终审：${review.decision}${review.note ? ` · ${review.note}` : ""}${review.reviewed_by ? ` · ${review.reviewed_by}` : ""}`,
+      created_at: review.reviewed_at || "",
+    });
+  }
+  return cards;
+}
+
+function conversationMessages() {
+  let messages = Array.isArray(state.messages) ? state.messages.slice() : [];
+  if (!messages.length) messages = messagesFromEvents(state.events);
+  const existing = new Set(messages.map((item) => item.kind));
+  evidenceCards().forEach((card) => {
+    if (!existing.has(card.kind)) messages.push(card);
+  });
+  return messages;
 }
 
 function renderMessages() {
   const empty = $("#empty-state");
   const stream = $("#message-stream");
-  if (!state.selectedSessionId && !state.messages.length) {
+  const allMessages = conversationMessages();
+  if (!state.selectedSessionId && !allMessages.length) {
     empty.hidden = false;
     stream.hidden = true;
     $("#transcript-toolbar").hidden = true;
@@ -409,15 +647,15 @@ function renderMessages() {
   }
   empty.hidden = true;
   stream.hidden = false;
-  if (!state.messages.length) {
-    stream.innerHTML = `<div class="msg system"><div class="who">提示</div><div class="body">会话已就绪。描述要对 FlowERP 做的改动，然后点「开始交付」。</div></div>`;
+  if (!allMessages.length) {
+    stream.innerHTML = `<div class="msg system"><div class="who">提示</div><div class="body">这个会话还没有可展示的对话记录。过程账本里可能已有事件，可切换到「过程」查看。</div></div>`;
     $("#transcript-toolbar").hidden = true;
     return;
   }
-  const lastPipelineIndex = state.messages.reduce((found, message, index) =>
+  const lastPipelineIndex = allMessages.reduce((found, message, index) =>
     (message.kind === "pipeline/stage" ? index : found), -1);
   const seenRequests = new Set();
-  const summaryMessages = state.messages.filter((message, index) => {
+  const summaryMessages = allMessages.filter((message, index) => {
     const kind = message.kind || "";
     if (message.role === "user" || kind === "user/message") {
       const key = messageBody(message).trim();
@@ -427,48 +665,57 @@ function renderMessages() {
     }
     if (index === lastPipelineIndex) return true;
     return kind === "agent/critique" || kind === "agent/stopped"
-      || kind === "assistant/message" || kind === "assistant/chunk";
+      || kind === "assistant/message" || kind === "assistant/chunk"
+      || kind === "spec/ready" || kind === "eval/report" || kind === "task/review";
   });
-  const visibleMessages = state.showAllMessages ? state.messages : summaryMessages;
+  const visibleMessages = state.showAllMessages ? allMessages : summaryMessages;
   const toolbar = $("#transcript-toolbar");
   toolbar.hidden = false;
   $("#message-count").textContent = state.showAllMessages
-    ? `${state.messages.length} 条全部记录`
-    : `${summaryMessages.length} 条关键记录 · 已隐藏 ${Math.max(0, state.messages.length - summaryMessages.length)} 条技术噪声`;
+    ? `${allMessages.length} 条全部记录`
+    : `${summaryMessages.length} 条关键记录 · 已隐藏 ${Math.max(0, allMessages.length - summaryMessages.length)} 条技术噪声`;
   $("#toggle-message-density").textContent = state.showAllMessages ? "只看交付摘要" : "显示全部技术记录";
   stream.innerHTML = visibleMessages.map((m) => {
     const role = m.role || "system";
     const kind = m.kind || "";
+    const when = eventTime(m.created_at);
+    const whenHtml = when ? `<time>${esc(when)}</time>` : "";
     if (kind === "pipeline/stage") {
       const tone = m.task_status === "dead_letter" || m.task_status === "failed"
         ? "bad" : (m.task_status === "review" || m.task_status === "completed" ? "ok" : "info");
       return `<article class="msg pipeline ${tone}">
-        <div class="who">流水线 · ${esc(m.title || kindLabel(kind))}</div>
+        <div class="who">流水线 · ${esc(m.title || kindLabel(kind))}${whenHtml}</div>
         <div class="body">${esc(messageBody(m))}</div>
         <div class="pipe-tag">对模型可见 · ${esc(m.stage_id || "")} / ${esc(m.task_status || "")}</div>
       </article>`;
     }
     if (kind === "pipeline/context" || kind === "agent/pre-step") {
       return `<article class="msg pipeline context">
-        <div class="who">${esc(kindLabel(kind))}（已注入大模型）</div>
+        <div class="who">${esc(kindLabel(kind))}（已注入大模型）${whenHtml}</div>
         <details><summary>展开查看模型收到的流水线上下文</summary><pre class="body">${esc(messageBody(m))}</pre></details>
       </article>`;
     }
     if (kind === "agent/critique") {
       return `<article class="msg pipeline ok">
-        <div class="who">质检员意见 · ${esc(m.reviewer_id || "agent:reviewer")}</div>
+        <div class="who">测试意见 · ${esc(m.reviewer_id || "agent:reviewer")}${whenHtml}</div>
         <div class="body">${esc(messageBody(m))}</div>
         <div class="pipe-tag">建议=${esc(m.suggested_decision || "—")} · 不能代替老板终审</div>
       </article>`;
     }
+    if (kind === "spec/ready" || kind === "eval/report" || kind === "task/review") {
+      return `<article class="msg pipeline ok">
+        <div class="who">${esc(kindLabel(kind))}${whenHtml}</div>
+        <div class="body">${esc(messageBody(m))}</div>
+      </article>`;
+    }
     const who = kind ? `${roleLabel(role)} · ${kindLabel(kind)}` : roleLabel(role);
     return `<article class="msg ${esc(role)}${m.pending ? " pending" : ""}">
-      <div class="who">${esc(who)}</div>
+      <div class="who">${esc(who)}${whenHtml}</div>
       <div class="body">${esc(messageBody(m))}</div>
     </article>`;
   }).join("");
   const scroller = document.querySelector("[data-conversation-scroll]");
-  if (state.sending || !state.selectedSessionId) scroller.scrollTop = scroller.scrollHeight;
+  if (scroller && (state.sending || !state.selectedSessionId)) scroller.scrollTop = scroller.scrollHeight;
 }
 
 function sessionTaskStatus(session) {
@@ -559,14 +806,197 @@ function setWorkbenchView(view, target = "") {
   }
 }
 
-function openDecisionWithSignal(signal = "") {
+function openDecisionWithSignal(signal = "", extras = {}) {
   const value = String(signal || "").trim();
-  if (value) {
-    $("#initiative-title").value = shortTitle(value);
-    $("#initiative-signal").value = value;
-  }
+  fillInitiativeDraft({
+    title: extras.title,
+    signal: value,
+    source: extras.source || (value ? "工作台业务信号快录" : ""),
+    problem: extras.problem,
+    goal: extras.goal,
+    acceptance: extras.acceptance,
+    evidence: extras.evidence,
+    areas: extras.areas,
+  });
   setWorkbenchView("decision");
-  (value ? $("#initiative-source") : $("#initiative-title")).focus();
+  const titleFilled = Boolean(($("#initiative-title").value || "").trim());
+  (titleFilled ? $("#initiative-problem") : $("#initiative-title")).focus();
+}
+
+function fillInitiativeDraft(draft = {}) {
+  const signal = String(draft.signal || "").trim();
+  if (signal) {
+    ["title", "signal", "source", "problem", "goal", "acceptance", "evidence", "areas"]
+      .forEach((field) => {
+        const node = $("#initiative-" + field);
+        if (node) node.value = "";
+      });
+  }
+  const setIf = (selector, value) => {
+    if (value == null || value === "") return;
+    $(selector).value = value;
+  };
+  setIf("#initiative-title", draft.title || (signal ? shortTitle(signal) : ""));
+  setIf("#initiative-signal", signal);
+  setIf("#initiative-source", draft.source);
+  setIf("#initiative-problem", draft.problem || (signal ? `现场信号：${signal}` : ""));
+  setIf("#initiative-goal", draft.goal);
+  setIf("#initiative-acceptance", Array.isArray(draft.acceptance) ? draft.acceptance.join("\n") : draft.acceptance);
+  setIf("#initiative-evidence", Array.isArray(draft.evidence) ? draft.evidence.join("\n") : draft.evidence);
+  setIf("#initiative-areas", Array.isArray(draft.areas) ? draft.areas.join(", ") : draft.areas);
+}
+
+function extrasFromDataset(el) {
+  if (!el || !el.dataset) return {};
+  return {
+    title: el.dataset.title || "",
+    source: el.dataset.source || "",
+    problem: el.dataset.problem || "",
+    goal: el.dataset.goal || "",
+    acceptance: el.dataset.acceptance || "",
+    evidence: el.dataset.evidence || "",
+    areas: el.dataset.areas || "",
+  };
+}
+
+function sessionForTask(taskId) {
+  return (state.sessions || []).find((session) => session.task_id === taskId) || null;
+}
+
+async function openTaskDelivery(taskId) {
+  const session = sessionForTask(taskId);
+  setWorkbenchView("delivery");
+  if (session) {
+    await selectSession(session.id);
+    return;
+  }
+  toast("还没有绑定该 Task 的会话，已打开交付区");
+}
+
+function openFilteredDelivery(filter) {
+  state.sessionFilter = filter || "all";
+  localStorage.setItem(FILTER_KEY, state.sessionFilter);
+  renderSessions();
+  setWorkbenchView("delivery");
+  const visible = (state.sessions || []).filter(sessionMatchesFilter);
+  if (visible[0]) selectSession(visible[0].id);
+}
+
+function flowerpHref(hash) {
+  const url = (state.flowerpStatus && state.flowerpStatus.url) || "http://127.0.0.1:8000";
+  return `${url}/${hash || "#dashboard"}`;
+}
+
+async function runVerifyEval() {
+  const projectId = currentProjectId();
+  if (!projectId) {
+    $("#workspace-dialog").showModal();
+    return toast("请先选择工作区");
+  }
+  if (state.verifyingEval) return toast("正在复验，请稍候");
+  state.verifyingEval = true;
+  const button = $("#dashboard-run-eval");
+  if (button) button.disabled = true;
+  try {
+    const task = await api("/api/v1/tasks", {
+      method: "POST",
+      headers: headers("verify-eval"),
+      body: JSON.stringify({
+        project_id: projectId,
+        request: "复验当前仓库阻断级 Eval，不修改代码。",
+        requirement_id: "REQ-VERIFY-BLOCKING",
+        execute_code: false,
+        write_scope: [],
+        profile_id: currentProfileId(),
+      }),
+    });
+    toast("已启动 Blocking Eval 复验");
+    await loadShell();
+    setWorkbenchView("delivery");
+    if (task.session_id) await selectSession(task.session_id);
+  } catch (err) {
+    toast(err.message);
+  } finally {
+    state.verifyingEval = false;
+    if (button) button.disabled = false;
+  }
+}
+
+async function reviewFeedbackItem(feedbackId, decision) {
+  const note = (
+    document.querySelector(`[data-feedback-note="${feedbackId}"]`)
+    || { value: "" }
+  ).value.trim();
+  if (!note) return toast("审核反馈必须写下判断依据");
+  try {
+    await api(`/api/v1/feedback/${encodeURIComponent(feedbackId)}/review`, {
+      method: "POST",
+      headers: headers("feedback-review"),
+      body: JSON.stringify({ decision, note }),
+    });
+    toast(decision === "accept" ? "反馈已接受" : "反馈已驳回");
+    await loadShell();
+  } catch (err) {
+    toast(err.message);
+  }
+}
+
+async function proposeEvolution(feedbackId) {
+  const item = ((state.feedbackSummary && state.feedbackSummary.items) || [])
+    .find((entry) => entry.id === feedbackId);
+  if (!item) return;
+  const signature = String(item.next_step || item.conclusion || feedbackId).slice(0, 200);
+  try {
+    await api("/api/v1/evolutions", {
+      method: "POST",
+      headers: headers("evolution-create"),
+      body: JSON.stringify({
+        feedback_id: feedbackId,
+        failure_signature: signature,
+        classification: "workbench_observability",
+      }),
+    });
+    toast("已建立进化候选");
+    await loadShell();
+  } catch (err) {
+    toast(err.message);
+  }
+}
+
+function startLessonInitiative(number) {
+  const lesson = (state.courseLessons || []).find((item) => Number(item.number) === Number(number));
+  if (!lesson) return toast("未找到该讲合同");
+  const pad = String(lesson.number).padStart(2, "0");
+  openDecisionWithSignal(lesson.request, {
+    title: `L${pad} ${lesson.title}`,
+    source: `课程合同 ${lesson.requirement_id}`,
+    problem: lesson.erp_increment,
+    goal: lesson.workbench_increment,
+    acceptance: (lesson.acceptance || []).join("\n"),
+    evidence: `课程合同 ${lesson.requirement_id} · ${lesson.baseline_ref}`,
+    areas: (lesson.write_scope || []).map((path) => {
+      if (String(path).startsWith("flowerp")) return "inventory";
+      if (String(path).includes("web")) return "api";
+      return "";
+    }).filter(Boolean).join(", ") || "inventory",
+  });
+  toast(`已载入 L${pad} 合同，补证据后做决定`);
+}
+
+function activateCapability(name) {
+  if (name === "Eval" || name === "Harness") return runVerifyEval();
+  if (name === "Spec") return setWorkbenchView("decision");
+  if (name === "Loop" || name === "Graph") {
+    setWorkbenchView("delivery");
+    if (state.selectedSessionId) openGraphDetails();
+    else if (state.sessions[0]) selectSession(state.sessions[0].id);
+    return;
+  }
+  if (name === "API") {
+    toast(state.health ? `API 已响应 · ${state.health.product}` : "健康接口尚未返回");
+    return;
+  }
+  toast("当前就是工作台 Web");
 }
 
 function deliveryViewsByRecency() {
@@ -693,11 +1123,12 @@ function renderRailPanel(step) {
   panel.hidden = false;
   const dutyId = DUTY_BY_RAIL[step.id] || dutyForStatus(status);
   const duty = employeeById(dutyId);
+  const role = step.role || duty.display_name;
   panel.innerHTML = `
     <div class="rail-panel-head">
       <div>
         <strong>${esc(step.title)}</strong>
-        <span class="rail-status-note">${esc(statusNote)} · 值班 ${esc(duty.display_name)}</span>
+        <span class="rail-status-note">${esc(statusNote)} · 值班 ${esc(role)}</span>
       </div>
       <button type="button" class="linkish" id="rail-collapse">收起</button>
     </div>
@@ -706,7 +1137,7 @@ function renderRailPanel(step) {
       <div>
         <h4>本步做什么</h4>
         <ul>${step.actions.map((a) => `<li>${esc(a)}</li>`).join("")}</ul>
-        <p class="muted">当前职责：${esc(duty.display_name)}（${esc(dutyId)}）</p>
+        <p class="muted">当前职责：${esc(role)}（事件标签 ${esc(duty.display_name)} / ${esc(dutyId)}）</p>
       </div>
       <div>
         <h4>给大模型的提示</h4>
@@ -773,12 +1204,12 @@ function renderRail() {
   $("#rail-steps").innerHTML = RAIL.map((step, i) => {
     const cls = stageStateClass(step, i, idx, status);
     const mark = cls.includes("done") ? "✓" : (cls.includes("current") ? "●" : String(i + 1));
-    const duty = employeeById(DUTY_BY_RAIL[step.id] || "agent:coder");
+    const role = step.role || employeeById(DUTY_BY_RAIL[step.id] || "agent:coder").display_name;
     return `<button type="button" class="${cls}" data-rail="${esc(step.id)}" aria-expanded="${state.expandedRailId === step.id}">
       <span class="rail-mark">${mark}</span>
       <span class="rail-copy">
         <span class="rail-label">${esc(step.label)}</span>
-        <span class="rail-emp">${esc(duty.display_name)}</span>
+        <span class="rail-emp">${esc(role)}</span>
       </span>
       <span class="rail-chevron">${state.expandedRailId === step.id ? "▾" : "▸"}</span>
     </button>`;
@@ -805,46 +1236,36 @@ function renderCollabBar() {
     return;
   }
   const me = ($("#actor").value || "").trim() || "boss";
-  const status = currentStatus();
-  const dutyId = dutyForStatus(status);
-  const duty = employeeById(dutyId);
   const activity = actorActivity();
-  const employees = state.employees.length ? state.employees : DEFAULT_EMPLOYEES;
   bar.hidden = false;
   bar.innerHTML = `
     <div class="collab-main">
-      <span><span class="collab-mode">${esc(roleRuntimeLabel())}</span> 当前职责 <b>${esc(duty.display_name)}</b> · 终审人 <b>${esc(me)}</b></span>
-      <span class="collab-actions"><button type="button" id="toggle-team" class="linkish">${state.teamExpanded ? "收起分工" : "查看分工与事件"}</button></span>
+      <span><span class="collab-mode">${esc(roleRuntimeLabel())}</span> 交付角色 <b>${esc(currentRailRole())}</b> · 终审人 <b>${esc(me)}</b></span>
+      <span class="collab-actions"><button type="button" id="toggle-team" class="linkish">${state.teamExpanded ? "收起运行时视角" : "查看 User / Agent / 工具"}</button></span>
     </div>
     <div class="opc-roster" ${state.teamExpanded ? "" : "hidden"}>
-      ${employees.map((emp) => {
-        const n = activity[emp.id] || 0;
-        const on = emp.id === dutyId;
-        return `<button type="button" class="opc-emp ${on ? "on" : ""}" data-traj-actor="${esc(emp.id)}" title="${esc(emp.duty || "")}">
-          <b>${esc(emp.display_name)}</b>
-          <small>${esc(emp.id)} · ${n} 事件</small>
-        </button>`;
-      }).join("")}
-      <button type="button" class="opc-emp" data-traj-actor="boss" title="查看老板操作">
-        <b>老板</b>
-        <small>${esc(me)} · ${activity.boss} 事件</small>
+      <button type="button" class="opc-emp ${state.dutyFocus === "user" ? "on" : ""}" data-traj-actor="user" title="筛选人类操作；不是独立登录">
+        <b>你（User）</b>
+        <small>${esc(me)} · ${activity.user} 事件</small>
+      </button>
+      <button type="button" class="opc-emp ${state.dutyFocus === "agent" ? "on" : ""}" data-traj-actor="agent" title="筛选 agent:* 事件">
+        <b>Agent</b>
+        <small>agent:* · ${activity.agent} 事件</small>
+      </button>
+      <button type="button" class="opc-emp ${state.dutyFocus === "tool" ? "on" : ""}" data-traj-actor="tool" title="筛选 tool / approval/ask">
+        <b>工具</b>
+        <small>tool · ${activity.tool} 事件</small>
       </button>
     </div>
     <p class="collab-warn" ${state.teamExpanded ? "" : "hidden"} style="background:var(--ds-50);color:var(--ds-700);border:0">
-      ${esc(roleRuntimeNote())} 点职责卡片可过滤「过程」账本；只有老板能终审。
+      ${esc(roleRuntimeNote())} 点卡片只过滤「过程」账本；交付终审只有老板/Leader 能做。
     </p>`;
   $("#toggle-team").addEventListener("click", () => {
     state.teamExpanded = !state.teamExpanded;
     renderCollabBar();
   });
   bar.querySelectorAll("[data-traj-actor]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      state.trajActorFilter = btn.dataset.trajActor || "all";
-      localStorage.setItem(TRAJ_ACTOR_KEY, state.trajActorFilter);
-      setView("trajectory");
-      renderTrajectory();
-      toast(`过程筛选：${state.trajActorFilter === "boss" ? "老板" : (employeeById(state.trajActorFilter).display_name || state.trajActorFilter)}`);
-    });
+    btn.addEventListener("click", () => focusDuty(btn.dataset.trajActor));
   });
 }
 
@@ -976,17 +1397,47 @@ function renderHeader() {
   syncComposerEnabled();
 }
 
+function renderTrajectoryInspector(event) {
+  const box = $("#traj-inspector");
+  if (!box) return;
+  if (!event) {
+    box.innerHTML = `<div class="explain-card">
+      <p class="explain-kicker">过程账本</p>
+      <p>点左侧一条记录，查看谁在何时做了什么。这是答辩复盘用的事件账本，不是 FlowERP 业务单据。</p>
+    </div>`;
+    return;
+  }
+  box.innerHTML = `<div class="explain-card">
+    <p class="explain-kicker">${esc(kindLabel(event.kind))}</p>
+    <h3>${esc(String(eventPreview(event)).slice(0, 160) || event.kind || "事件")}</h3>
+    <div class="kv traj-kv">
+      <div><span>时间</span><b>${esc(event.created_at || "—")}</b></div>
+      <div><span>操作者</span><b>${esc(actorDisplay(event.actor))}</b></div>
+      <div><span>类型</span><b>${esc(event.kind || "—")}</b></div>
+      <div><span>序号</span><b>#${esc(event.sequence ?? "—")}</b></div>
+    </div>
+    <pre class="traj-payload">${esc(JSON.stringify(event.payload || {}, null, 2))}</pre>
+  </div>`;
+}
+
 function renderTrajectory() {
+  const table = $("#traj-table");
+  if (!table) return;
   const events = state.events || [];
   const filtered = events.filter(eventMatchesTrajFilter);
   const activity = actorActivity();
-  const filterLabel = state.trajActorFilter === "all"
-    ? "全部"
-    : (state.trajActorFilter === "boss" ? "老板" : employeeById(state.trajActorFilter).display_name);
+  const filterLabel = runtimeFilterLabel(state.trajActorFilter);
+  const sourceLabel = {
+    all: "全部来源",
+    turn: "turn/step",
+    tool: "tool",
+    llm: "模型",
+    task: "交付（课程扩展）",
+  }[state.trajSourceFilter] || "全部来源";
   $("#traj-overview").innerHTML = state.session
-    ? `共 ${events.length} 条 · 当前显示 ${filtered.length} 条（筛选：${esc(filterLabel)}）。
-       规格 ${activity["agent:spec"]} / 工程师 ${activity["agent:coder"]} / 质检 ${activity["agent:reviewer"]} / 老板 ${activity.boss}`
-    : "未选择会话";
+    ? `共 ${events.length} 条 · 当前显示 ${filtered.length} 条（${esc(filterLabel)} · ${esc(sourceLabel)}）。对照 DeepSeek Trajectory / Codex event stream。
+       User ${activity.user} / Agent ${activity.agent} / 工具 ${activity.tool}`
+    : "未选择会话。打开一次交付后，这里会显示该次改动的全部过程事件。";
 
   const filters = $("#traj-filters");
   if (filters) {
@@ -994,41 +1445,58 @@ function renderTrajectory() {
       btn.classList.toggle("active", btn.dataset.traj === state.trajActorFilter);
     });
   }
+  const sources = $("#traj-source-filters");
+  if (sources) {
+    sources.querySelectorAll("[data-traj-source]").forEach((btn) => {
+      btn.classList.toggle("active", btn.dataset.trajSource === state.trajSourceFilter);
+    });
+  }
 
+  const selected = state.selectedEvent
+    && filtered.some((event) => event.sequence === state.selectedEvent.sequence)
+    ? state.selectedEvent
+    : null;
+
+  if (!state.session) {
+    table.innerHTML = `<div class="traj-turn">先在左侧打开一次交付，这里会显示该次改动的全部过程事件。</div>`;
+    renderTrajectoryInspector(null);
+    return;
+  }
   if (!events.length) {
-    $("#traj-table").innerHTML = `<div class="traj-turn">发送需求后会出现过程记录。</div>`;
+    table.innerHTML = `<div class="traj-turn">这次交付还没有过程事件。流水线跑起来后，规格、改代码、Eval 和终审都会记在这里。</div>`;
+    renderTrajectoryInspector(null);
     return;
   }
   if (!filtered.length) {
-    $("#traj-table").innerHTML = `<div class="traj-turn">当前筛选下没有事件。点「全部」查看完整账本。</div>`;
+    table.innerHTML = `<div class="traj-turn">当前筛选下没有事件。点「全部」查看完整账本。</div>`;
+    renderTrajectoryInspector(null);
     return;
   }
+  const inspect = selected || filtered[filtered.length - 1];
   const chunks = [];
   filtered.forEach((event, index) => {
     if (event.kind === "turn/start") {
       chunks.push(`<div class="traj-turn">第 ${esc((event.payload || {}).turn || "?")} 轮</div>`);
     }
-    const active = state.selectedEvent && state.selectedEvent.sequence === event.sequence;
-    const who = event.actor
-      ? (String(event.actor).startsWith("agent:")
-        ? employeeById(event.actor).display_name
-        : event.actor)
-      : "—";
+    const active = inspect && inspect.sequence === event.sequence;
     chunks.push(`<button type="button" class="traj-row ${active ? "active" : ""}" data-seq="${esc(event.sequence)}">
       <span class="idx">#${esc(event.sequence ?? index + 1)}</span>
+      <span class="when">${esc(eventTime(event.created_at) || "—")}</span>
       <span class="kind">${esc(kindLabel(event.kind))}</span>
-      <span class="who">${esc(who)}</span>
+      <span class="who">${esc(actorDisplay(event.actor))}</span>
       <span class="content">${esc(String(eventPreview(event)).slice(0, 90))}</span>
     </button>`);
   });
-  $("#traj-table").innerHTML = chunks.join("");
-  $("#traj-table").querySelectorAll(".traj-row").forEach((row) => {
+  table.innerHTML = chunks.join("");
+  table.querySelectorAll(".traj-row").forEach((row) => {
     row.addEventListener("click", () => {
       const seq = Number(row.dataset.seq);
-      const event = events.find((e) => e.sequence === seq);
-      openEventDetails(event);
+      const event = events.find((item) => item.sequence === seq);
+      state.selectedEvent = event || null;
+      renderTrajectory();
     });
   });
+  renderTrajectoryInspector(inspect);
 }
 
 function renderGraphDetails() {
@@ -1044,17 +1512,14 @@ function renderGraphDetails() {
   const duty = employeeById(dutyForStatus(current));
   const activity = actorActivity();
   const critique = latestCritique();
-  const employees = state.employees.length ? state.employees : DEFAULT_EMPLOYEES;
 
   $("#details-title").textContent = "交付进度";
   $("#details-kind").textContent = roleRuntimeLabel();
   $("#details-body").innerHTML = `
     <div class="explain-card">
-      <p class="explain-kicker">流水线职责</p>
-      <p>${esc(roleRuntimeNote())} 当前职责：<b>${esc(duty.display_name)}</b></p>
-      <ul class="opc-detail-list">
-        ${employees.map((emp) => `<li><b>${esc(emp.display_name)}</b> ${esc(emp.id)} · ${activity[emp.id] || 0} 事件</li>`).join("")}
-      </ul>
+      <p class="explain-kicker">两层词汇</p>
+      <p>交付轨道当前角色：<b>${esc(currentRailRole())}</b>（事件标签 ${esc(duty.id)}）。Harness 运行时：User ${activity.user} / Agent ${activity.agent} / 工具 ${activity.tool}。</p>
+      <p>${esc(roleRuntimeNote())}</p>
     </div>
     <div class="explain-card">
       <p class="explain-kicker">和 FlowERP 的关系</p>
@@ -1066,7 +1531,7 @@ function renderGraphDetails() {
       <p>${esc(help.blurb)}</p>
       <p class="muted">${esc(String(request).slice(0, 160))}</p>
       <p class="muted">${esc((state.task && state.task.id) || "尚未创建任务")}</p>
-      ${critique ? `<p class="muted">质检建议：${esc(critique.suggested_decision || "—")}</p>` : ""}
+      ${critique ? `<p class="muted">挑刺建议：${esc(critique.suggested_decision || "—")}</p>` : ""}
     </div>
     <div class="pipeline">
       ${nodes.map((n) => {
@@ -1166,21 +1631,93 @@ function renderReview() {
   }
 }
 
+function syncProfileSelects(profileId) {
+  const id = String(profileId || currentProfileId() || "PROFILE-DEFAULT");
+  ["#profile-id", "#settings-profile"].forEach((selector) => {
+    const node = $(selector);
+    if (!node || !node.options) return;
+    if (![...node.options].some((option) => option.value === id) && id) {
+      const option = document.createElement("option");
+      option.value = id;
+      option.textContent = id;
+      node.appendChild(option);
+    }
+    if ([...node.options].some((option) => option.value === id)) node.value = id;
+  });
+  localStorage.setItem(PROFILE_KEY, id);
+}
+
 function renderProfileSelect() {
-  const select = $("#profile-id");
   const current = localStorage.getItem(PROFILE_KEY) || "PROFILE-DEFAULT";
-  select.innerHTML = (state.profiles.length ? state.profiles : [{ id: "PROFILE-DEFAULT", name: "默认" }])
-    .map((p) => `<option value="${esc(p.id)}">${esc(p.name || p.id)}</option>`).join("");
-  if ([...select.options].some((o) => o.value === current)) select.value = current;
-  localStorage.setItem(PROFILE_KEY, select.value);
+  const items = state.profiles.length ? state.profiles : [{ id: "PROFILE-DEFAULT", name: "默认" }];
+  ["#profile-id", "#settings-profile"].forEach((selector) => {
+    const select = $(selector);
+    if (!select) return;
+    select.innerHTML = items.map((p) => `<option value="${esc(p.id)}">${esc(p.name || p.id)}</option>`).join("");
+  });
+  syncProfileSelects(current);
+}
+
+async function switchProfile(profileId) {
+  syncProfileSelects(profileId);
+  try {
+    await loadShell();
+    toast(`已切换 Profile ${currentProfileId()}。这是教学组合，不是 dsh / Codex 官方运行时。`);
+  } catch (err) {
+    toast(err.message);
+  }
+}
+
+async function activatePlugin(pluginId) {
+  try {
+    await api(`/api/v1/profiles/${encodeURIComponent(currentProfileId())}/activate`, {
+      method: "POST",
+      headers: headers("plugin"),
+      body: JSON.stringify({ plugin_id: pluginId }),
+    });
+    toast(`已把 ${pluginId} 用于当前 Profile`);
+    await loadShell();
+  } catch (err) {
+    toast(err.message);
+  }
+}
+
+function renderSeamMap() {
+  const box = $("#seam-map");
+  if (!box) return;
+  const composition = state.composition || (state.capabilities && state.capabilities.composition) || {};
+  const seams = composition.seams || [];
+  const missing = composition.missing_seams || [];
+  const profile = (composition.profile && composition.profile.id) || currentProfileId();
+  box.innerHTML = `
+    <article><b>Profile</b><small>${esc(profile)}</small></article>
+    <article><b>组合就绪</b><small>${composition.ready ? "是" : "否"}</small></article>
+    ${seams.map((seam) => `<article><b>${esc(seam)}</b><small>seam</small></article>`).join("")}
+    ${missing.map((seam) => `<article class="missing-seam"><b>${esc(seam)}</b><small>缺失</small></article>`).join("")}
+  `;
+}
+
+function renderDumpConfig() {
+  const dump = $("#dump-config");
+  if (!dump) return;
+  dump.textContent = state.dumpConfig
+    ? JSON.stringify(state.dumpConfig, null, 2)
+    : "尚未加载 dump-config";
 }
 
 function renderSettings() {
   const caps = state.capabilities || {};
+  const providers = (caps.providers || {});
   $("#capability-cards").innerHTML = `
-    <article><b>Codex</b><small>${caps.codex_available ? "可用" : "本机不可用（可用模板/验证模式）"}</small></article>
-    <article><b>组合就绪</b><small>${(caps.composition && caps.composition.ready) ? "是" : "否"}</small></article>
-    <article><b>工具</b><small>${(state.tools || []).length} 个</small></article>`;
+    <article><b>Codex CLI</b><small>${caps.codex_available ? "本机可用（受控改码）" : "不可用，可走 template / 只验证"}</small></article>
+    <article><b>LLM Provider</b><small>${esc(providers.llm || llmProvider())}</small></article>
+    <article><b>工具</b><small>${(state.tools || []).length} 个</small></article>
+    <article><b>交付终审</b><small>老板/Leader 具名通过或驳回</small></article>
+    <article><b>工具 ask</b><small>approval=ask 一次性放行；有事件才出现，不是审批队列产品</small></article>
+    <article><b>Interrupt</b><small>会话暂停/继续</small></article>`;
+
+  renderSeamMap();
+  renderDumpConfig();
 
   $("#project-cards").innerHTML = state.projects.map((p) =>
     `<article><b>${esc(p.name)}</b><small>${esc(p.id)} · ${esc(p.root_path)}</small></article>`).join("")
@@ -1190,10 +1727,13 @@ function renderSettings() {
     `<article><b>${esc(p.name)}</b><small>${esc(p.id)}</small></article>`).join("");
 
   $("#plugin-cards").innerHTML = state.plugins.map((p) => `
-    <label class="plugin-row">
-      <input type="checkbox" data-plugin="${esc(p.id)}" ${p.enabled ? "checked" : ""}>
-      <span><b>${esc(p.name)}</b><small>${esc(p.seam)} → ${esc(p.provider)}</small></span>
-    </label>`).join("");
+    <div class="plugin-row">
+      <label>
+        <input type="checkbox" data-plugin="${esc(p.id)}" ${p.enabled ? "checked" : ""}>
+        <span><b>${esc(p.name)}</b><small>${esc(p.seam)} → ${esc(p.provider)}</small></span>
+      </label>
+      <button type="button" class="ghost-btn" data-activate="${esc(p.id)}">用于当前 Profile</button>
+    </div>`).join("");
   $("#plugin-cards").querySelectorAll("input[data-plugin]").forEach((input) => {
     input.addEventListener("change", async () => {
       try {
@@ -1209,6 +1749,9 @@ function renderSettings() {
         toast(err.message);
       }
     });
+  });
+  $("#plugin-cards").querySelectorAll("[data-activate]").forEach((btn) => {
+    btn.addEventListener("click", () => activatePlugin(btn.dataset.activate));
   });
 
   $("#tool-cards").innerHTML = state.tools.slice(0, 16).map((t) =>
@@ -1315,7 +1858,9 @@ async function selectSession(sessionId) {
   renderSessions();
   try {
     await refreshSelected();
-    if (state.task && state.workbenchView === "delivery") openGraphDetails();
+    setView(state.view || "chat");
+    const scroller = document.querySelector("[data-conversation-scroll]");
+    if (scroller) scroller.scrollTop = 0;
   } catch (err) {
     toast(err.message);
   }
@@ -1594,8 +2139,11 @@ function renderDashboard() {
   $("#capability-map").innerHTML = capabilities.map(([name, available, evidenced, detail]) => {
     const evidenceState = evidenced ? "ready" : (available ? "installed" : "attention");
     const evidenceText = evidenced ? `已验证 · ${detail}` : (available ? `可用未使用 · ${detail}` : "未配置");
-    return `<div class="capability-node ${evidenceState}"><b>${name}</b><small>${esc(evidenceText)}</small></div>`;
+    return `<button type="button" class="capability-node ${evidenceState}" data-capability="${esc(name)}"><b>${name}</b><small>${esc(evidenceText)}</small></button>`;
   }).join("");
+  document.querySelectorAll("[data-capability]").forEach((button) => {
+    button.addEventListener("click", () => activateCapability(button.dataset.capability));
+  });
   const runtimeChip = $("#runtime-summary");
   runtimeChip.textContent = runtimeReady ? `${activePlugins.length} 个组件已加载 · 非交付结论` : "运行时未就绪";
   runtimeChip.className = `status-chip ${runtimeReady ? "good" : "warn"}`;
@@ -1611,18 +2159,34 @@ function renderDashboard() {
     <div class="quality-line"><span>结论</span><b>${esc(latestEval.decision || "未判定")} · ${latestView.integrity.truthful ? "证据一致" : "证据需核对"}</b></div>
     <div class="quality-line"><span>报告</span><b>${esc(latestEval.report_path || "未保存报告")}</b></div>
     <div class="quality-line"><span>SHA-256</span><b>${esc((latestEval.report_sha256 || "未提供").slice(0, 12))}${latestEval.report_sha256 ? "…" : ""}</b></div>`
-    : `<div class="empty-dashboard">尚无真实 Eval 报告。工具已安装不等于质量门已经通过。</div>`;
+    : `<div class="empty-dashboard">尚无真实 Eval 报告。点右上角「复验 Blocking Eval」会创建一次只验证、不改代码的任务。</div>`;
+  const qualityOpen = $("#quality-open-task");
+  if (qualityOpen) {
+    qualityOpen.disabled = !latestView;
+    qualityOpen.onclick = () => latestView && openTaskDelivery(latestView.task_id);
+  }
 
   const rules = [
-    ["可用库存不得为负，预占必须原子化", ["stock_never_negative"]],
-    ["同一个入库幂等键只能生效一次", ["receiving_is_idempotent"]],
-    ["订单状态只能按状态机迁移，取消释放预占", ["illegal_transition_is_blocked", "cancellation_releases_reservation"]],
-    ["采购补货必须人工审批后才能入库", ["purchase_requires_approval"]],
-    ["任务、Eval 与反馈可追溯，失败不能伪装成功", ["delivery_evidence_and_review_controls"]],
+    ["可用库存不得为负，预占必须原子化", ["stock_never_negative"], "#inventory"],
+    ["同一个入库幂等键只能生效一次", ["receiving_is_idempotent"], "#inventory"],
+    ["订单状态只能按状态机迁移，取消释放预占", ["illegal_transition_is_blocked", "cancellation_releases_reservation"], "#sales"],
+    ["采购补货必须人工审批后才能入库", ["purchase_requires_approval"], "#purchases"],
+    ["任务、Eval 与反馈可追溯，失败不能伪装成功", ["delivery_evidence_and_review_controls"], "#delivery"],
   ];
   const latestCases = new Map(((latestEval && latestEval.cases) || []).map((item) => [item.name, item]));
   let verifiedRuleCount = 0;
-  $("#flow-rules").innerHTML = rules.map(([rule, caseNames]) => {
+  const flowerp = state.flowerpStatus || {};
+  const flowerpLive = $("#flowerp-live");
+  if (flowerpLive) {
+    flowerpLive.innerHTML = `
+    <a class="flowerp-chip ${flowerp.live ? "on" : ""}" href="${esc(flowerpHref("#dashboard"))}" target="_blank" rel="noopener">
+      ${flowerp.live ? "FlowERP 在线 · 打开产品" : "FlowERP 未探测到 · 仍可打开 :8000"}
+    </a>
+    ${(flowerp.pages || []).map((page) =>
+      `<a class="flowerp-chip" href="${esc(page.href)}" target="_blank" rel="noopener">${esc(page.label)}</a>`
+    ).join("")}`;
+  }
+  $("#flow-rules").innerHTML = rules.map(([rule, caseNames, hash]) => {
     const cases = caseNames.map((name) => latestCases.get(name)).filter(Boolean);
     const failed = cases.some((item) => !item.passed);
     const verified = cases.length === caseNames.length && cases.every((item) => item.passed);
@@ -1630,7 +2194,7 @@ function renderDashboard() {
     const stateClass = failed ? "failed" : (verified ? "" : "unverified");
     const mark = failed ? "×" : (verified ? "✓" : "·");
     const label = failed ? "最近验证失败" : (verified ? "最近验证通过" : "本次无验证证据");
-    return `<div class="rule-item ${stateClass}"><span>${mark}</span><div>${esc(rule)}<small>${esc(label)}</small></div></div>`;
+    return `<a class="rule-item ${stateClass}" href="${esc(flowerpHref(hash))}" target="_blank" rel="noopener"><span>${mark}</span><div>${esc(rule)}<small>${esc(label)} · 打开产品页</small></div></a>`;
   }).join("");
   $("#flow-rules-status").textContent = latestEval ? `${verifiedRuleCount} / ${rules.length} 最近验证` : "等待 Eval";
   $("#flow-rules-status").className = `status-chip ${verifiedRuleCount === rules.length ? "good" : "warn"}`;
@@ -1643,6 +2207,41 @@ function renderDashboard() {
     <div class="evolution-row"><span>已接受反馈</span><b>${feedback.accepted || 0}</b></div>
     <div class="evolution-row"><span>资产已变更</span><b>${evolution.asset_changed || 0}</b></div>
     <div class="evolution-row"><span>迁移验证完成</span><b>${evolution.verified || 0}</b></div>`;
+  const feedbackItems = (feedback.items || []).slice(0, 8);
+  const pending = feedbackItems.filter((item) => item.status === "pending_review");
+  const accepted = feedbackItems.filter((item) => item.status === "accepted");
+  const feedbackBox = $("#feedback-actions");
+  if (feedbackBox) {
+    feedbackBox.innerHTML = pending.length ? pending.map((item) => `
+    <article class="feedback-item">
+      <div><b>${esc(item.id)}</b><small>${esc(item.conclusion || item.source || "")}</small></div>
+      <label>判断依据<textarea rows="2" data-feedback-note="${esc(item.id)}" placeholder="为什么接受或驳回"></textarea></label>
+      <div class="initiative-actions">
+        <button type="button" class="send" data-feedback-review="accept" data-feedback-id="${esc(item.id)}">接受</button>
+        <button type="button" class="ghost-btn danger" data-feedback-review="reject" data-feedback-id="${esc(item.id)}">驳回</button>
+        <button type="button" class="linkish" data-feedback-open="${esc(item.task_id || "")}">打开交付</button>
+      </div>
+    </article>`).join("") : `<div class="empty-dashboard">${accepted.length ? "没有待审核反馈。已接受的可提升为进化候选。" : "还没有反馈。失败任务会自动沉淀观察，人审后才能进入进化。"}</div>`;
+    if (accepted.length) {
+      feedbackBox.innerHTML += accepted.slice(0, 3).map((item) => `
+      <article class="feedback-item accepted">
+        <div><b>${esc(item.id)}</b><small>已接受 · ${esc(item.conclusion || "")}</small></div>
+        <div class="initiative-actions">
+          <button type="button" class="ghost-btn" data-evolution-create="${esc(item.id)}">建立进化候选</button>
+          <button type="button" class="linkish" data-feedback-open="${esc(item.task_id || "")}">打开交付</button>
+        </div>
+      </article>`).join("");
+    }
+    feedbackBox.querySelectorAll("[data-feedback-review]").forEach((button) => {
+      button.addEventListener("click", () => reviewFeedbackItem(button.dataset.feedbackId, button.dataset.feedbackReview));
+    });
+    feedbackBox.querySelectorAll("[data-evolution-create]").forEach((button) => {
+      button.addEventListener("click", () => proposeEvolution(button.dataset.evolutionCreate));
+    });
+    feedbackBox.querySelectorAll("[data-feedback-open]").forEach((button) => {
+      button.addEventListener("click", () => button.dataset.feedbackOpen && openTaskDelivery(button.dataset.feedbackOpen));
+    });
+  }
 
   const plugins = runtime.plugins || state.plugins || [];
   $("#plugin-summary").innerHTML = plugins.length ? plugins.slice(0, 8).map((plugin) => {
@@ -1655,10 +2254,37 @@ function renderDashboard() {
     const report = view.eval && view.eval.report_path
       ? view.eval.report_path
       : (view.spec && view.spec.available ? "只有 Spec，尚无 Eval 报告" : "尚未生成可核对证据");
-    return `<div class="evidence-item"><span class="task-dot ${TERMINAL.has(task.status) ? (task.status === "completed" ? "done" : "bad") : "busy"}"></span>
+    return `<button type="button" class="evidence-item" data-evidence-task="${esc(task.id || "")}">
+      <span class="task-dot ${TERMINAL.has(task.status) ? (task.status === "completed" ? "done" : "bad") : "busy"}"></span>
       <span><b>${esc(task.requirement_id || task.id || "交付证据")}</b><small>${esc(report)}</small></span>
-      <small>${esc(statusLabel(task.status || "idle"))}</small></div>`;
-  }).join("") || `<div class="empty-dashboard">证据会在首次交付后出现在这里。</div>`;
+      <small>${esc(statusLabel(task.status || "idle"))}</small>
+    </button>`;
+  }).join("") || `<div class="empty-dashboard">证据会在首次交付后出现在这里。也可以先点「复验 Blocking Eval」。</div>`;
+  document.querySelectorAll("[data-evidence-task]").forEach((button) => {
+    button.addEventListener("click", () => button.dataset.evidenceTask && openTaskDelivery(button.dataset.evidenceTask));
+  });
+
+  const lessons = state.courseLessons || [];
+  const courseChip = $("#course-ready-chip");
+  if (courseChip) {
+    courseChip.textContent = course.loading
+      ? "课程合同读取中"
+      : (course.course_ready ? `${lessons.length || course.lesson_count || 16} 讲就绪` : "合同待修复");
+    courseChip.className = `status-chip ${course.course_ready ? "good" : "warn"}`;
+  }
+  const lessonBox = $("#course-lesson-list");
+  if (lessonBox) {
+    lessonBox.innerHTML = lessons.length ? lessons.map((lesson) => {
+      const pad = String(lesson.number).padStart(2, "0");
+      return `<button type="button" class="course-lesson" data-lesson="${esc(lesson.number)}">
+        <b>L${pad} ${esc(lesson.title)}</b>
+        <small>${esc(lesson.erp_increment)} · ${esc(lesson.workbench_increment)}</small>
+      </button>`;
+    }).join("") : `<div class="empty-dashboard">${course.error || "课程合同读取中…"}</div>`;
+    lessonBox.querySelectorAll("[data-lesson]").forEach((button) => {
+      button.addEventListener("click", () => startLessonInitiative(button.dataset.lesson));
+    });
+  }
 }
 
 function linesFrom(selector, separator = /\r?\n/) {
@@ -1670,6 +2296,9 @@ async function createInitiative() {
   if (!projectId) {
     $("#workspace-dialog").showModal();
     return;
+  }
+  if (!($("#initiative-source").value || "").trim()) {
+    $("#initiative-source").value = "工作台业务信号快录";
   }
   try {
     const created = await api("/api/v1/initiatives", {
@@ -1790,9 +2419,14 @@ function renderInitiatives() {
     const readiness = item.readiness || {};
     const missing = [...(readiness.decision_missing || []), ...(readiness.delivery_missing || [])];
     const decided = Boolean(item.decision);
-    return `<article class="initiative-item ${esc(item.risk_lane)}">
+    const superseded = item.status === "superseded" && item.superseded_by;
+    const displayTitle = superseded ? "历史编码损坏记录（已替代）" : item.title;
+    const displaySignal = superseded
+      ? `原始中文在写入前已损坏；请以 ${item.superseded_by} 为准。原始事件仍保留用于审计。`
+      : item.raw_signal;
+    return `<article class="initiative-item ${esc(item.risk_lane)} ${superseded ? "superseded" : ""}">
       <div class="initiative-item-head">
-        <div><h3>${esc(item.title)}</h3><p>${esc(item.raw_signal)}</p></div>
+        <div><h3>${esc(displayTitle)}</h3><p>${esc(displaySignal)}</p></div>
         <span class="risk-badge">${esc(item.risk_lane)} · v${esc(item.version)}</span>
       </div>
       <div class="initiative-facts">
@@ -1826,7 +2460,9 @@ function renderInitiatives() {
         ).join("")}
       </div>` : ""}
       ${item.decision === "build" && !item.linked_task_id ? `<div class="initiative-actions"><button type="button" class="send" data-initiative-promote="${esc(item.id)}">生成交付合同并进入 Harness</button></div>` : ""}
-      ${item.linked_task_id ? `<div class="initiative-linked">已关联 ${esc(item.linked_task_id)}；后续质量结论以 Task / Eval / 人审证据为准。</div>` : ""}
+      ${superseded
+        ? `<div class="initiative-linked">原记录已由 ${esc(item.superseded_by)} 替代；原 Task ${esc(item.linked_task_id || "—")} 仅作为历史证据保留。</div>`
+        : item.linked_task_id ? `<div class="initiative-linked">已关联 <button type="button" class="linkish" data-open-task="${esc(item.linked_task_id)}">${esc(item.linked_task_id)}</button>；后续质量结论以 Task / Eval / 人审证据为准。</div>` : ""}
     </article>`;
   }).join("");
   document.querySelectorAll("[data-initiative-decision]").forEach((button) => {
@@ -1837,6 +2473,9 @@ function renderInitiatives() {
   });
   document.querySelectorAll("[data-initiative-promote]").forEach((button) => {
     button.addEventListener("click", () => promoteInitiative(button.dataset.initiativePromote));
+  });
+  document.querySelectorAll("[data-open-task]").forEach((button) => {
+    button.addEventListener("click", () => openTaskDelivery(button.dataset.openTask));
   });
 }
 
@@ -1900,8 +2539,10 @@ async function loadCourseStatus() {
 
 async function loadShell() {
   void loadCourseStatus();
+  const profileId = currentProfileId();
   const [health, projects, sessions, plugins, profiles, tools, capabilities, deliveryViews, employees,
-    pluginRuntime, pluginEvents, feedbackSummary, evolutionSummary, tasks, initiatives] = await Promise.all([
+    pluginRuntime, pluginEvents, feedbackSummary, evolutionSummary, tasks, initiatives, courseLessons, flowerpStatus,
+    dumpConfig, composition] = await Promise.all([
     api("/api/v1/health"),
     api("/api/v1/projects"),
     api("/api/v1/sessions?limit=100"),
@@ -1911,12 +2552,16 @@ async function loadShell() {
     api("/api/v1/capabilities"),
     api("/api/v1/delivery/views?limit=200").catch(() => ({ items: [] })),
     api("/api/v1/employees").catch(() => ({ items: DEFAULT_EMPLOYEES })),
-    api("/api/v1/profiles/PROFILE-DEFAULT/runtime").catch(() => null),
-    api("/api/v1/plugin-events?profile_id=PROFILE-DEFAULT&limit=20").catch(() => ({ items: [] })),
+    api(`/api/v1/profiles/${encodeURIComponent(profileId)}/runtime`).catch(() => null),
+    api(`/api/v1/plugin-events?profile_id=${encodeURIComponent(profileId)}&limit=20`).catch(() => ({ items: [] })),
     api("/api/v1/feedback").catch(() => ({ total: 0, items: [] })),
     api("/api/v1/evolutions?limit=50").catch(() => ({ total: 0, items: [] })),
     api("/api/v1/tasks?limit=100").catch(() => ({ items: [] })),
     api("/api/v1/initiatives?limit=100").catch(() => ({ items: [] })),
+    api("/api/v1/course/lessons").catch(() => ({ items: [] })),
+    api("/api/v1/flowerp/status").catch(() => ({ live: false, url: "http://127.0.0.1:8000", pages: [] })),
+    api(`/api/v1/dump-config?profile_id=${encodeURIComponent(profileId)}`).catch(() => null),
+    api(`/api/v1/profiles/${encodeURIComponent(profileId)}/composition`).catch(() => null),
   ]);
   state.projects = projects.items || [];
   state.sessions = sessions.items || [];
@@ -1931,12 +2576,18 @@ async function loadShell() {
   state.evolutionSummary = evolutionSummary;
   state.tasks = tasks.items || [];
   state.initiatives = initiatives.items || [];
+  state.courseLessons = courseLessons.items || [];
+  state.flowerpStatus = flowerpStatus;
+  state.dumpConfig = dumpConfig;
+  state.composition = composition;
   state.employees = (employees.items && employees.items.length) ? employees.items : DEFAULT_EMPLOYEES.slice();
   ingestDeliveryViews(deliveryViews.items || []);
   if (!$("#proj-root").value && health.repository_root) {
     $("#proj-root").value = health.repository_root;
   }
   renderEmployeeChips();
+  renderActorOptions();
+  renderActorHint();
   renderSessions();
   renderSettings();
   renderCollabBar();
@@ -1947,9 +2598,14 @@ async function loadShell() {
 function renderEmployeeChips() {
   const box = $("#employee-chips");
   if (!box) return;
-  const duty = dutyForStatus(currentStatus());
-  box.innerHTML = (state.employees.length ? state.employees : DEFAULT_EMPLOYEES).map((emp) =>
-    `<span class="chip-mini ${emp.id === duty ? "active" : ""}" data-emp="${esc(emp.id)}" title="${esc(emp.duty || "")}">${esc(emp.display_name)}</span>`
+  const focus = state.dutyFocus || "";
+  const views = [
+    { id: "user", label: "你（User）", title: "筛选人类操作；不是独立登录" },
+    { id: "agent", label: "Agent", title: "筛选 agent:* 事件" },
+    { id: "tool", label: "工具", title: "筛选 tool / approval/ask 事件" },
+  ];
+  box.innerHTML = views.map((item) =>
+    `<button type="button" class="chip-mini ${item.id === focus ? "active focus" : ""}" data-emp="${item.id}" title="${item.title}">${item.label}</button>`
   ).join("");
 }
 
@@ -1975,10 +2631,35 @@ async function registerProject() {
   }
 }
 
+function closeDialog(dialog) {
+  if (dialog && dialog.open) dialog.close();
+}
+
+function bindDialogDismiss() {
+  document.querySelectorAll("dialog").forEach((dialog) => {
+    dialog.addEventListener("click", (event) => {
+      if (event.target === dialog) closeDialog(dialog);
+    });
+    const form = dialog.querySelector("form");
+    if (form) form.addEventListener("submit", (event) => event.preventDefault());
+  });
+  document.addEventListener("click", (event) => {
+    const btn = event.target.closest("[data-close-dialog]");
+    if (!btn) return;
+    const named = btn.getAttribute("data-close-dialog");
+    const dialog = (named && document.getElementById(named)) || btn.closest("dialog");
+    closeDialog(dialog);
+  });
+}
+
 function bind() {
   $("#actor").value = localStorage.getItem(ACTOR_KEY) || "boss";
+  rememberActor($("#actor").value);
+  renderActorOptions();
+  renderActorHint();
   syncSessionFilters();
   syncRoleChips();
+  bindDialogDismiss();
 
   $("#new-chat").addEventListener("click", () => openDecisionWithSignal());
   $("#back-dashboard").addEventListener("click", () => setWorkbenchView("dashboard"));
@@ -1991,6 +2672,8 @@ function bind() {
     button.addEventListener("click", () => setWorkbenchView("delivery"));
   });
   $("#dashboard-new").addEventListener("click", () => setWorkbenchView("decision"));
+  const runEval = $("#dashboard-run-eval");
+  if (runEval) runEval.addEventListener("click", runVerifyEval);
   $("#empty-go-decision").addEventListener("click", () => openDecisionWithSignal());
   $("#delivery-new-initiative").addEventListener("click", () => openDecisionWithSignal());
   $("#dashboard-settings").addEventListener("click", () => $("#settings").showModal());
@@ -2001,11 +2684,14 @@ function bind() {
   });
   $("#review-cancel").addEventListener("click", () => $("#review-dialog").close());
   $("#review-confirm").addEventListener("click", submitReview);
+  document.querySelectorAll("[data-session-filter]").forEach((button) => {
+    button.addEventListener("click", () => openFilteredDelivery(button.dataset.sessionFilter));
+  });
   $("#dashboard-send").addEventListener("click", () => {
     const request = ($("#dashboard-prompt").value || "").trim();
     if (!request) return toast("先记录用户、业务或运行现场的原始信号");
     $("#dashboard-prompt").value = "";
-    openDecisionWithSignal(request);
+    openDecisionWithSignal(request, { source: "工作台业务信号快录" });
   });
   $("#dashboard-prompt").addEventListener("keydown", (event) => {
     if (event.key === "Enter" && !event.shiftKey) {
@@ -2029,19 +2715,27 @@ function bind() {
     state.sidebarCollapsed = !state.sidebarCollapsed;
     syncShell();
   });
-  $("#profile-id").addEventListener("change", () => {
-    localStorage.setItem(PROFILE_KEY, $("#profile-id").value);
+  $("#profile-id").addEventListener("change", () => switchProfile($("#profile-id").value));
+  const settingsProfile = $("#settings-profile");
+  if (settingsProfile) {
+    settingsProfile.addEventListener("change", () => switchProfile(settingsProfile.value));
+  }
+  $("#actor").addEventListener("change", () => commitActor($("#actor").value, { announce: true }));
+  $("#actor").addEventListener("blur", () => commitActor($("#actor").value));
+  $("#actor").addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      commitActor($("#actor").value, { announce: true });
+      $("#actor").blur();
+    }
   });
-  $("#actor").addEventListener("change", () => {
-    actor();
-    renderCollabBar();
-    renderReviewBanner();
-    syncComposerEnabled();
+  $("#employee-chips").addEventListener("click", (event) => {
+    const btn = event.target.closest("[data-emp]");
+    if (btn) focusDuty(btn.dataset.emp);
   });
-  $("#actor").addEventListener("blur", () => {
-    actor();
-    renderCollabBar();
-    renderReviewBanner();
+  $("#actor-recents").addEventListener("click", (event) => {
+    const btn = event.target.closest("[data-actor]");
+    if (btn) commitActor(btn.dataset.actor, { announce: true });
   });
   document.querySelectorAll("#session-filters .filter").forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -2052,8 +2746,17 @@ function bind() {
   });
   document.querySelectorAll("#traj-filters [data-traj]").forEach((btn) => {
     btn.addEventListener("click", () => {
-      state.trajActorFilter = btn.dataset.traj || "all";
+      state.trajActorFilter = normalizeRuntimeFilter(btn.dataset.traj || "all");
+      state.dutyFocus = RUNTIME_FILTERS.includes(state.trajActorFilter) ? state.trajActorFilter : "";
       localStorage.setItem(TRAJ_ACTOR_KEY, state.trajActorFilter);
+      renderEmployeeChips();
+      renderTrajectory();
+    });
+  });
+  document.querySelectorAll("#traj-source-filters [data-traj-source]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.trajSourceFilter = btn.dataset.trajSource || "all";
+      localStorage.setItem(TRAJ_SOURCE_KEY, state.trajSourceFilter);
       renderTrajectory();
     });
   });
@@ -2075,12 +2778,12 @@ function bind() {
 
   document.querySelectorAll(".example").forEach((btn) => {
     btn.addEventListener("click", () => {
-      openDecisionWithSignal(btn.dataset.prompt || "");
+      openDecisionWithSignal(btn.dataset.prompt || "", extrasFromDataset(btn));
       toast("已保留为原始 Signal；请补来源、证据和决定");
     });
   });
 
-  document.querySelectorAll(".tab").forEach((tab) => {
+  document.querySelectorAll(".view-tabs [data-view]").forEach((tab) => {
     tab.addEventListener("click", () => setView(tab.dataset.view));
   });
 

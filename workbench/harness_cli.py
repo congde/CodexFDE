@@ -5,6 +5,7 @@ import cmd
 import json
 import shlex
 import sys
+from pathlib import Path
 
 from .harness_terminal import (
     HarnessTerminal,
@@ -15,6 +16,8 @@ from .harness_terminal import (
     format_table,
     format_task,
 )
+from .http_bind import ServerBindError, report_bind_error
+from .managed_flowerp import FlowERPStartupError, report_flowerp_startup_error
 from .platform_bootstrap import bootstrap_platform
 from .session_graph import format_session_graph
 
@@ -457,6 +460,19 @@ def build_parser() -> argparse.ArgumentParser:
     serve_cmd.add_argument("--host", default="127.0.0.1")
     serve_cmd.add_argument("--port", type=int, default=8010)
     serve_cmd.add_argument("--bootstrap", action="store_true")
+    serve_cmd.add_argument("--boot", action="store_true",
+                           help="组合启动：注册当前项目并联动启动 FlowERP")
+    serve_cmd.add_argument("--with-flowerp", action="store_true",
+                           help="联动启动或复用 FlowERP")
+    serve_cmd.add_argument("--flowerp-host", default="127.0.0.1")
+    serve_cmd.add_argument("--flowerp-port", type=int, default=8000)
+    serve_cmd.add_argument("--flowerp-runtime-dir", default=".runtime")
+    supersede_cmd = sub.add_parser(
+        "initiative-supersede", help="审计式标记编码损坏事项的正确替代记录",
+    )
+    supersede_cmd.add_argument("initiative_id")
+    supersede_cmd.add_argument("replacement_id")
+    supersede_cmd.add_argument("--reason", required=True)
     return parser
 
 
@@ -468,7 +484,31 @@ def main(argv: list[str] | None = None) -> int:
     if command == "serve-web":
         from .platform_server import serve
 
-        serve(args.host, args.port, args.runtime_dir, args.repository_root, args.bootstrap)
+        try:
+            serve(
+                args.host,
+                args.port,
+                args.runtime_dir,
+                args.repository_root,
+                args.bootstrap or args.boot,
+                args.with_flowerp or args.boot,
+                args.flowerp_host,
+                args.flowerp_port,
+                args.flowerp_runtime_dir,
+            )
+        except ServerBindError as error:
+            return report_bind_error(error)
+        except FlowERPStartupError as error:
+            return report_flowerp_startup_error(error)
+        return 0
+
+    if command == "initiative-supersede":
+        from .initiative import InitiativeStore
+
+        result = InitiativeStore(Path(args.runtime_dir) / "platform.db").supersede_corrupted(
+            args.initiative_id, args.replacement_id, args.actor, args.reason,
+        )
+        _emit(result, json_mode=args.json)
         return 0
 
     terminal = HarnessTerminal(args.runtime_dir, args.repository_root, args.actor)

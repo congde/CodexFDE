@@ -3,12 +3,19 @@ from __future__ import annotations
 import argparse
 import json
 import mimetypes
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import urlparse
 
 from .platform_api import HarnessPlatformAPI
 from .platform_bootstrap import bootstrap_default_project
+from .http_bind import ServerBindError, create_http_server, report_bind_error
+from .managed_flowerp import (
+    FlowERPStartupError,
+    ManagedFlowERP,
+    launch_flowerp,
+    report_flowerp_startup_error,
+)
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -63,9 +70,14 @@ def make_handler(api: HarnessPlatformAPI):
             if WEB_ROOT not in target.parents or not target.is_file():
                 return self._send(404, {"error": "not_found"})
             data = target.read_bytes(); self.send_response(200)
-            self.send_header("Content-Type", mimetypes.guess_type(target)[0] or "application/octet-stream")
+            content_type = mimetypes.guess_type(target)[0] or "application/octet-stream"
+            if content_type.startswith("text/") or content_type in {
+                "application/javascript", "application/json", "image/svg+xml",
+            }:
+                content_type += "; charset=utf-8"
+            self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(data)))
-            self.send_header("Cache-Control", "no-cache" if target.name == "index.html" else "public, max-age=3600")
+            self.send_header("Cache-Control", "no-cache")
             self._security_headers(); self.end_headers()
             try:
                 self.wfile.write(data)
@@ -86,17 +98,45 @@ def make_handler(api: HarnessPlatformAPI):
 
 def serve(host: str = "127.0.0.1", port: int = 8010,
           runtime_dir: str = ".harness-runtime", repository_root: str | Path | None = None,
-          bootstrap: bool = False) -> None:
+          bootstrap: bool = False, with_flowerp: bool = False,
+          flowerp_host: str = "127.0.0.1", flowerp_port: int = 8000,
+          flowerp_runtime_dir: str = ".runtime") -> None:
     api = HarnessPlatformAPI(runtime_dir, repository_root)
-    startup: dict[str, object] = {"product": "Harness Workbench", "url": f"http://{host}:{port}"}
+    harness_url = f"http://{host}:{port}"
+    startup: dict[str, object] = {
+        "level": "INFO",
+        "event": "harness_server_started",
+        "service": "harness",
+        "product": "Harness Workbench",
+        "url": harness_url,
+        "harness_url": harness_url,
+    }
     if bootstrap:
         startup["bootstrap"] = bootstrap_default_project(api)
-    server = ThreadingHTTPServer((host, port), make_handler(api))
-    print(json.dumps(startup, ensure_ascii=False))
-    try: server.serve_forever()
+    server = create_http_server(
+        host,
+        port,
+        make_handler(api),
+        service_name="完整 Harness 平台",
+        retry_command="python -X utf8 -m workbench.harness_cli serve-web --port 8090",
+    )
+    managed_flowerp: ManagedFlowERP | None = None
+    try:
+        if with_flowerp:
+            managed_flowerp = launch_flowerp(
+                api.repository_root,
+                host=flowerp_host,
+                port=flowerp_port,
+                runtime_dir=flowerp_runtime_dir,
+            )
+            startup["flowerp"] = managed_flowerp.summary()
+        print(json.dumps(startup, ensure_ascii=False), flush=True)
+        server.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
+        if managed_flowerp is not None:
+            managed_flowerp.stop()
         server.server_close()
         api.shutdown()
 
@@ -109,8 +149,29 @@ def main() -> int:
     parser.add_argument("--repository-root")
     parser.add_argument("--bootstrap", action="store_true",
                         help="启动时自动注册当前仓库为默认目标项目 PROJECT-FLOWERP")
+    parser.add_argument("--boot", action="store_true",
+                        help="组合启动：注册当前项目并联动启动 FlowERP")
+    parser.add_argument("--with-flowerp", action="store_true", help="联动启动或复用 FlowERP")
+    parser.add_argument("--flowerp-host", default="127.0.0.1")
+    parser.add_argument("--flowerp-port", type=int, default=8000)
+    parser.add_argument("--flowerp-runtime-dir", default=".runtime")
     args = parser.parse_args()
-    serve(args.host, args.port, args.runtime_dir, args.repository_root, args.bootstrap)
+    try:
+        serve(
+            args.host,
+            args.port,
+            args.runtime_dir,
+            args.repository_root,
+            args.bootstrap or args.boot,
+            args.with_flowerp or args.boot,
+            args.flowerp_host,
+            args.flowerp_port,
+            args.flowerp_runtime_dir,
+        )
+    except ServerBindError as error:
+        return report_bind_error(error)
+    except FlowERPStartupError as error:
+        return report_flowerp_startup_error(error)
     return 0
 
 

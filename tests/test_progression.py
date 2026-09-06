@@ -23,7 +23,7 @@ class ProgressionTests(unittest.TestCase):
     def test_l04_start_blocks_export(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            path = root / "course" / "baselines" / "PROGRESSION.json"
+            path = root / "docs" / "courses" / "labs" / "baselines" / "PROGRESSION.json"
             path.parent.mkdir(parents=True)
             path.write_text(json.dumps(progression_payload(4)), encoding="utf-8")
             self.assertEqual(load_enabled_capabilities(root), set())
@@ -35,7 +35,7 @@ class ProgressionTests(unittest.TestCase):
         self.assertEqual(enabled, {"inventory_export"})
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            path = root / "course" / "baselines" / "PROGRESSION.json"
+            path = root / "docs" / "courses" / "labs" / "baselines" / "PROGRESSION.json"
             path.parent.mkdir(parents=True)
             path.write_text(json.dumps(progression_payload(5)), encoding="utf-8")
             require_capability("inventory_export", root=root)

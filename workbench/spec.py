@@ -30,16 +30,55 @@ class ParsedSpec:
         }
 
 
+def _contract_headings(text: str) -> list[re.Match]:
+    """Ignore headings in fenced examples while preserving original text offsets.
+
+    This handles the subset used by our six-section contract, not arbitrary
+    Markdown. Unclosed examples are rejected instead of hiding later sections.
+    """
+    masked: list[str] = []
+    fence: tuple[str, int] | None = None
+    for line in text.splitlines(keepends=True):
+        match = re.match(r"^[ ]{0,3}(`{3,}|~{3,})([^\r\n]*)", line)
+        if fence:
+            if match and match[1][0] == fence[0] and len(match[1]) >= fence[1] and not match[2].strip():
+                fence = None
+            masked.append("".join(char if char in "\r\n" else " " for char in line))
+        elif match and not (match[1][0] == "`" and "`" in match[2]):
+            fence = (match[1][0], len(match[1]))
+            masked.append("".join(char if char in "\r\n" else " " for char in line))
+        else:
+            masked.append(line)
+    if fence:
+        raise ValueError("Spec 代码围栏未闭合，请补齐示例的结束标记")
+    return list(re.finditer(r"^##[ \t]+([^\r\n]+?)[ \t]*\r?$", "".join(masked), flags=re.MULTILINE))
+
+
 def parse_spec(text: str) -> ParsedSpec:
+    matches = _contract_headings(text)
+    names = [match.group(1).strip() for match in matches]
+    unknown = list(dict.fromkeys(name for name in names if name not in REQUIRED_SECTIONS))
+    if unknown:
+        raise ValueError(f"Spec 包含未知章节：{', '.join(unknown)}")
+    duplicates = list(dict.fromkeys(name for name in names if names.count(name) > 1))
+    if duplicates:
+        raise ValueError(f"Spec 包含重复章节：{', '.join(duplicates)}")
+    missing = [name for name in REQUIRED_SECTIONS if name not in names]
+    if missing:
+        raise ValueError(f"Spec 缺少必要章节：{', '.join(missing)}")
+    if tuple(names) != REQUIRED_SECTIONS:
+        expected = " → ".join(REQUIRED_SECTIONS)
+        actual = " → ".join(names)
+        raise ValueError(f"Spec 章节顺序错误；应为：{expected}；实际为：{actual}")
+
     sections: dict[str, str] = {}
-    matches = list(re.finditer(r"^##\s+(.+?)\s*$", text, flags=re.MULTILINE))
     for index, match in enumerate(matches):
         name = match.group(1).strip()
         end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
         sections[name] = text[match.end():end].strip()
-    missing = [name for name in REQUIRED_SECTIONS if not sections.get(name)]
-    if missing:
-        raise ValueError(f"Spec 缺少必要章节：{', '.join(missing)}")
+    empty = [name for name in REQUIRED_SECTIONS if not sections[name]]
+    if empty:
+        raise ValueError(f"Spec 章节内容不能为空：{', '.join(empty)}")
     return ParsedSpec(
         source=sections["来源"], goal=sections["目标"], non_goals=sections["非目标"],
         constraints=sections["约束"], acceptance=sections["验收用例"], done=sections["完成定义"],

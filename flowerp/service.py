@@ -82,7 +82,9 @@ class ERPService:
                 (sku, name.strip(), unit_price_cents, reorder_point),
             )
             conn.execute("INSERT OR IGNORE INTO stock(sku,on_hand,reserved) VALUES(?,0,0)", (sku,))
-        return self.product(sku)
+        result = self.product(sku)
+        self._publish_authority(sku)
+        return result
 
     def product(self, sku: str) -> dict:
         item = self.store.row(
@@ -99,6 +101,44 @@ class ERPService:
             "SELECT p.sku,p.name,s.on_hand,s.reserved,(s.on_hand-s.reserved) AS available,p.reorder_point "
             "FROM products p JOIN stock s USING(sku) ORDER BY p.sku"
         )
+
+    def export_inventory(self) -> str:
+        rows = self.inventory()
+        lines = ["sku,name,site,location,lot_id,on_hand,reserved,available"]
+        for row in rows:
+            lines.append(
+                f"{row['sku']},{row['name']},MAIN,STOCK,,{row['on_hand']},{row['reserved']},{row['available']}"
+            )
+        return "\n".join(lines)
+
+    def _publish_authority(self, sku: str) -> None:
+        """Keep the v2 ledger aligned with the course-facing available quantity."""
+        from .identity import IdentityService, SYSTEM_PRINCIPAL
+        from .master_data import MasterDataService
+
+        sku = sku.upper()
+        IdentityService(self.store).ensure_local_defaults()
+        item = self.product(sku)
+        master = MasterDataService(self.store)
+        try:
+            product = master.product(SYSTEM_PRINCIPAL, sku)
+        except NotFound:
+            product = master.create_product(
+                SYSTEM_PRINCIPAL, sku, item["name"], item["unit_price_cents"],
+                min_stock=item.get("reorder_point") or 0,
+            )
+        product_id = product["id"]
+        with self.store.connect() as conn:
+            conn.execute(
+                "INSERT OR IGNORE INTO stock_balance(organization_id,product_id,location_id,lot_id,on_hand,reserved) "
+                "VALUES(?,?,?,?,?,?)",
+                (SYSTEM_PRINCIPAL.organization_id, product_id, "LOC-MAIN-STOCK", "", item["on_hand"], item["reserved"]),
+            )
+            conn.execute(
+                "UPDATE stock_balance SET on_hand=?,reserved=?,updated_at=CURRENT_TIMESTAMP "
+                "WHERE organization_id=? AND product_id=? AND location_id=? AND lot_id=?",
+                (item["on_hand"], item["reserved"], SYSTEM_PRINCIPAL.organization_id, product_id, "LOC-MAIN-STOCK", ""),
+            )
 
     def inventory_events(self, limit: int = 100) -> list[dict]:
         limit = max(1, min(int(limit), 500))
@@ -130,6 +170,7 @@ class ERPService:
             conn.execute("UPDATE stock SET on_hand=on_hand+? WHERE sku=?", (quantity, sku))
         result = self.product(sku)
         result["idempotent_replay"] = False
+        self._publish_authority(sku)
         return result
 
     def create_order(
@@ -210,7 +251,10 @@ class ERPService:
                 "UPDATE sales_orders SET status=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",
                 (OrderStatus.RESERVED, order_id),
             )
-        return self.order(order_id)
+        order = self.order(order_id)
+        for line in order["lines"]:
+            self._publish_authority(line["sku"])
+        return order
 
     def cancel_order(self, order_id: str) -> dict:
         with self.store.connect() as conn:
@@ -233,7 +277,10 @@ class ERPService:
                 "UPDATE sales_orders SET status=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",
                 (OrderStatus.CANCELLED, order_id),
             )
-        return self.order(order_id)
+        order = self.order(order_id)
+        for line in order["lines"]:
+            self._publish_authority(line["sku"])
+        return order
 
     def ship_order(self, order_id: str) -> dict:
         with self.store.connect() as conn:
@@ -256,7 +303,10 @@ class ERPService:
                 "UPDATE sales_orders SET status=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",
                 (OrderStatus.SHIPPED, order_id),
             )
-        return self.order(order_id)
+        order = self.order(order_id)
+        for line in order["lines"]:
+            self._publish_authority(line["sku"])
+        return order
 
     def propose_purchase(
         self, sku: str, quantity: int, reason: str, request_id: str | None = None,

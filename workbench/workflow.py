@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Callable
 
 from eval.harness import run_suite
-from .spec import load_spec
+from .spec import load_spec, parse_spec
 from .task_store import TaskStore
 
 
@@ -26,7 +26,15 @@ def prepare_task(store: TaskStore, task_id: str, actor: str = "system") -> dict:
     allowed = any(spec_path == root or root in spec_path.parents for root in (workspace, runtime))
     if spec_path.suffix.lower() != ".md" or not allowed:
         raise ValueError("Spec 必须是工作区或受控运行目录内的 Markdown 文件")
-    spec = load_spec(spec_path).as_dict()
+    binding = next((event.get('evidence') for event in reversed(task.get('events', []))
+                    if event.get('detail') == '本次需求 Spec 已冻结'), None)
+    if binding:
+        raw = spec_path.read_bytes()
+        if hashlib.sha256(raw).hexdigest() != binding.get('sha256'):
+            raise ValueError('本次需求 Spec 已变化，请重新提交并确认')
+        spec = parse_spec(raw.decode('utf-8')).as_dict()
+    else:
+        spec = load_spec(spec_path).as_dict()
     return store.transition(
         task_id, "spec_ready", "结构化 Spec 已校验", actor=actor,
         evidence={"spec_path": str(spec_path)}, spec=spec,
@@ -60,6 +68,12 @@ def execute_task(store: TaskStore, task_id: str, actor: str = "system",
     task = store.get(task_id)
     if task["status"] != "executing":
         raise ValueError("只有 executing 任务可以执行受控动作")
+    code_writes = task.get("execution_mode") == "codex"
+    if code_writes and execution_runner is None:
+        raise ControlledExecutionError("代码任务没有配置执行器，不能退化为仅复验", {
+            "success": False, "mode": "not_executed", "changed_files": [],
+            "message": "未调用 Codex；请配置执行器后重新发起受控执行",
+        })
     evidence = execution_runner(task) if execution_runner else {
         "mode": "verification_only",
         "changed_files": [],
@@ -70,6 +84,8 @@ def execute_task(store: TaskStore, task_id: str, actor: str = "system",
     result = store.append_event(task_id, "受控执行阶段完成", actor=actor, evidence=evidence)
     if evidence.get("success") is False:
         raise ControlledExecutionError(str(evidence.get("message") or "受控执行失败"), evidence)
+    if code_writes and (evidence.get("success") is not True or evidence.get("mode") != "codex_exec"):
+        raise ControlledExecutionError("代码执行证据不完整，不能仅凭复验进入人审", evidence)
     return result
 
 
@@ -77,8 +93,16 @@ def evaluate_task(store: TaskStore, task_id: str, actor: str = "system", suite_r
     task = store.get(task_id)
     if task["status"] != "executing":
         raise ValueError("只有 executing 任务可以进入评测")
+    bootstrap_source = None
+    if task.get('requirement_id') == 'WB-L04-BOOTSTRAP':
+        from .bootstrap_source import control_source_snapshot
+        bootstrap_source = control_source_snapshot(Path.cwd())
     store.transition(task_id, "evaluating", "运行统一阻断级 Eval", actor=actor)
     report = suite_runner("blocking", write_report=True)
+    if bootstrap_source is not None:
+        from .bootstrap_source import verify_control_source
+        verify_control_source(bootstrap_source)
+        report['bootstrap_source'] = bootstrap_source
     report_dir = Path(store.path).parent / "reports"
     report_dir.mkdir(parents=True, exist_ok=True)
     report_path = report_dir / f"{task_id}-harness-blocking.json"

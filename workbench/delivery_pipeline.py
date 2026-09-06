@@ -45,7 +45,7 @@ PIPELINE_STAGES: tuple[dict, ...] = (
         "label": "老板终审",
         "statuses": ("review", "completed", "failed", "dead_letter"),
         "title": "等待或结束于老板终审",
-        "summary": "员工停工；质检员可挑刺，只有老板能通过或驳回。",
+        "summary": "员工停工；测试可挑刺，只有老板/Leader 能通过或驳回。",
         "model_hint": "review 时停止自动改代码；等待老板终审，不要假装已 approve。",
     },
 )
@@ -86,7 +86,7 @@ def pipeline_payload(task_status: str, *, detail: str = "", evidence: object = N
     summary = stage.get("summary") or ""
     if task_status == "review":
         title = "等老板终审"
-        summary = "员工已停工；质检员可挑刺，需要老板具名通过或驳回。"
+        summary = "员工已停工；测试可挑刺，需要老板/Leader 具名通过或驳回。"
     elif task_status == "completed":
         title = "交付已接受"
         summary = "老板终审已通过，本次 FlowERP 增量完成。"

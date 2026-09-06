@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 import uuid
 from contextlib import contextmanager
@@ -22,6 +23,29 @@ STANDARD_AREAS = frozenset({
 
 def _text(value: object) -> str:
     return str(value or "").strip()
+
+
+def _lossy_paths(value: object, path: str = "payload") -> list[str]:
+    paths: list[str] = []
+    if isinstance(value, str):
+        if re.search(r"\?{3,}", value):
+            paths.append(path)
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            paths.extend(_lossy_paths(item, f"{path}.{key}"))
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            paths.extend(_lossy_paths(item, f"{path}[{index}]"))
+    return paths
+
+
+def _reject_lossy_text(value: object) -> None:
+    paths = _lossy_paths(value)
+    if paths:
+        raise ValueError(
+            "检测到疑似编码损坏的连续问号，已拒绝写入；请使用 UTF-8 重试。字段："
+            + ", ".join(paths[:8])
+        )
 
 
 def _text_list(values: object) -> list[str]:
@@ -138,6 +162,11 @@ class InitiativeStore:
                   ON initiative_events(initiative_id, sequence);
                 """
             )
+            columns = {row["name"] for row in conn.execute("PRAGMA table_info(initiatives)")}
+            if "superseded_by" not in columns:
+                conn.execute(
+                    "ALTER TABLE initiatives ADD COLUMN superseded_by TEXT NOT NULL DEFAULT ''"
+                )
 
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:
@@ -153,6 +182,7 @@ class InitiativeStore:
             conn.close()
 
     def create(self, data: dict, actor: str) -> dict:
+        _reject_lossy_text(data)
         title = _text(data.get("title"))
         raw_signal = _text(data.get("raw_signal"))
         source = _text(data.get("source"))
@@ -291,6 +321,7 @@ class InitiativeStore:
 
     def revise(self, initiative_id: str, changes: dict, actor: str,
                expected_version: int) -> dict:
+        _reject_lossy_text(changes)
         allowed = {
             "source", "problem_statement", "goal", "non_goals", "constraints", "acceptance",
             "evidence", "assumptions", "affected_areas", "dependencies", "alternatives",
@@ -371,6 +402,13 @@ class InitiativeStore:
     def decide(self, initiative_id: str, decision: str, actor: str, rationale: str,
                expected_version: int, *, review_trigger: str = "",
                reviewer: str = "", success_metric: str = "", stop_condition: str = "") -> dict:
+        _reject_lossy_text({
+            "rationale": rationale,
+            "review_trigger": review_trigger,
+            "reviewer": reviewer,
+            "success_metric": success_metric,
+            "stop_condition": stop_condition,
+        })
         decision = _text(decision).lower()
         rationale = _text(rationale)
         review_trigger = _text(review_trigger)
@@ -418,6 +456,56 @@ class InitiativeStore:
             self._append(conn, initiative_id, "decision/recorded", actor, {
                 "decision": decision, "rationale": rationale, "review_trigger": review_trigger,
                 "risk_lane": item["risk_lane"],
+            })
+        return self.get(initiative_id)
+
+    def supersede_corrupted(self, initiative_id: str, replacement_id: str,
+                            actor: str, reason: str) -> dict:
+        actor = _text(actor)
+        reason = _text(reason)
+        if not actor:
+            raise ValueError("编码修复必须有具名 actor")
+        if not reason:
+            raise ValueError("编码修复必须说明 reason")
+        if initiative_id == replacement_id:
+            raise ValueError("替代记录不能指向自身")
+        with self.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            target_row = conn.execute(
+                "SELECT * FROM initiatives WHERE id=?", (initiative_id,),
+            ).fetchone()
+            replacement_row = conn.execute(
+                "SELECT * FROM initiatives WHERE id=?", (replacement_id,),
+            ).fetchone()
+            if not target_row or not replacement_row:
+                raise KeyError(initiative_id if not target_row else replacement_id)
+            target = self._decode(target_row)
+            replacement = self._decode(replacement_row)
+            if target.get("superseded_by"):
+                if target["superseded_by"] != replacement_id:
+                    raise ValueError(f"事项已由 {target['superseded_by']} 替代")
+                return self._project(target)
+            corrupted_fields = _lossy_paths(target, "initiative")
+            if not corrupted_fields:
+                raise ValueError("目标事项未检测到连续问号编码损坏")
+            if _lossy_paths(replacement, "replacement"):
+                raise ValueError("替代事项仍包含疑似编码损坏")
+            target_requirement = _text(target.get("requirement_id"))
+            replacement_requirement = _text(replacement.get("requirement_id"))
+            if target_requirement and replacement_requirement != target_requirement:
+                raise ValueError("替代事项的 requirement_id 不一致")
+            updated = conn.execute(
+                "UPDATE initiatives SET status='superseded',superseded_by=?,version=version+1,"
+                "updated_at=CURRENT_TIMESTAMP WHERE id=? AND superseded_by=''",
+                (replacement_id, initiative_id),
+            )
+            if updated.rowcount != 1:
+                raise ValueError("事项替代状态发生并发变化")
+            self._append(conn, initiative_id, "initiative/encoding-superseded", actor, {
+                "replacement_id": replacement_id,
+                "reason": reason,
+                "corrupted_fields": corrupted_fields,
+                "original_content_preserved": True,
             })
         return self.get(initiative_id)
 

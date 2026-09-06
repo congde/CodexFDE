@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import re
 import sqlite3
 import uuid
@@ -22,6 +23,10 @@ VALID_TRANSITIONS = {
     "failed": {"dead_letter"},
     "dead_letter": set(),
 }
+
+
+class TaskSubmissionConflict(ValueError):
+    """An existing submission key belongs to a different request."""
 
 
 class TaskStore:
@@ -51,6 +56,10 @@ class TaskStore:
                   from_status TEXT, to_status TEXT NOT NULL, detail TEXT,
                   actor TEXT NOT NULL DEFAULT 'system', evidence_json TEXT,
                   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
+                CREATE TABLE IF NOT EXISTS task_submissions(
+                  submission_key TEXT PRIMARY KEY, fingerprint TEXT NOT NULL,
+                  task_id TEXT NOT NULL REFERENCES tasks(id)
                 );
                 """
             )
@@ -105,6 +114,7 @@ class TaskStore:
         execution_mode: str = "verify",
         write_scope: list[str] | None = None,
         execution_timeout_seconds: int = 900,
+        submission_key: str | None = None,
     ) -> dict:
         if not request.strip():
             raise ValueError("任务需求不能为空")
@@ -125,7 +135,21 @@ class TaskStore:
         task_id = task_id or f"TASK-{uuid.uuid4().hex[:10].upper()}"
         if not re.fullmatch(r"TASK-[A-Z0-9]{10}", task_id):
             raise ValueError("任务编号格式无效")
+        fingerprint = hashlib.sha256(json.dumps({
+            "request": request.strip(), "requirement": requirement_id.strip(), "refs": refs,
+            "actor": actor.strip(), "mode": execution_mode, "scope": scopes,
+            "timeout": int(execution_timeout_seconds), "automation": automation_mode,
+        }, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
         with self.connect() as conn:
+            if submission_key is not None:
+                if not submission_key.strip() or len(submission_key) > 200:
+                    raise ValueError("提交键不能为空且不能超过200字符")
+                conn.execute("BEGIN IMMEDIATE")
+                previous = conn.execute("SELECT * FROM task_submissions WHERE submission_key=?", (submission_key,)).fetchone()
+                if previous:
+                    if previous["fingerprint"] != fingerprint:
+                        raise TaskSubmissionConflict("提交键已用于不同需求；请使用新键")
+                    return self.get(previous["task_id"])
             conn.execute(
                 "INSERT INTO tasks(id,request,status,requirement_id,business_refs_json,spec_path,automation_mode,"
                 "execution_mode,write_scope_json,execution_timeout_seconds) VALUES(?,?,?,?,?,?,?,?,?,?)",
@@ -141,6 +165,8 @@ class TaskStore:
                     "write_scope": scopes, "execution_timeout_seconds": int(execution_timeout_seconds),
                 }, ensure_ascii=False)),
             )
+            if submission_key is not None:
+                conn.execute("INSERT INTO task_submissions VALUES(?,?,?)", (submission_key, fingerprint, task_id))
         return self.get(task_id)
 
     def get(self, task_id: str) -> dict:
@@ -192,15 +218,66 @@ class TaskStore:
             conn.execute("UPDATE tasks SET updated_at=CURRENT_TIMESTAMP WHERE id=?", (task_id,))
         return self.get(task_id)
 
+    def quarantine_interrupted_web_code_tasks(self) -> list[str]:
+        """Call only after acquiring the workbench service runtime lease."""
+        with self.connect() as conn:
+            conn.execute('BEGIN IMMEDIATE')
+            rows = list(conn.execute(
+                "SELECT id,status FROM tasks WHERE execution_mode='codex' "
+                "AND status IN ('queued','spec_ready','executing','evaluating','review') "
+                "AND EXISTS (SELECT 1 FROM task_events e WHERE e.task_id=tasks.id "
+                "AND e.detail IN ('网页具名授权课程隔离执行','网页具名授权日常研发'))"
+            ))
+            quarantined = []
+            for row in rows:
+                if row['status'] == 'review':
+                    package = conn.execute("SELECT evidence_json FROM task_events WHERE task_id=? AND detail='日常研发交付包已保存' ORDER BY id DESC LIMIT 1", (row['id'],)).fetchone()
+                    if package:
+                        try:
+                            daily = json.loads(package['evidence_json'] or '{}')
+                            if daily.get('status') == 'review':
+                                continue
+                        except (ValueError, TypeError, AttributeError):
+                            pass
+                    gate = conn.execute("SELECT evidence_json FROM task_events WHERE task_id=? AND detail='课程红绿差分判定已完成' ORDER BY id DESC LIMIT 1", (row['id'],)).fetchone()
+                    try:
+                        evidence = json.loads(gate['evidence_json'] or '{}') if gate else None
+                    except (ValueError, TypeError):
+                        evidence = None
+                    if isinstance(evidence, dict) and evidence.get('accepted') is True:
+                        continue
+                quarantined.append(row['id'])
+                conn.execute("UPDATE tasks SET status='dead_letter',error=?,version=version+1,updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                             ('网页代码执行中断，先核对残留进程、隔离副本与证据，禁止自动重写', row['id']))
+                conn.execute('INSERT INTO task_events(task_id,from_status,to_status,detail,actor,evidence_json) VALUES(?,?,?,?,?,?)',
+                             (row['id'], row['status'], 'dead_letter', '网页代码任务中断，等待人工核对',
+                              'workbench-recovery', json.dumps({'safe_replay': False, 'human_review_required': True})))
+            return quarantined
+
     def recover_automatic_tasks(self) -> list[str]:
         """Return durable automatic work that is safe to resume after a process restart."""
         with self.connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
             interrupted = list(conn.execute(
-                "SELECT id,status FROM tasks WHERE automation_mode='automatic' "
+                "SELECT id,status,execution_mode FROM tasks WHERE automation_mode='automatic' "
                 "AND status IN ('executing','evaluating')"
             ))
+            replayable = []
             for row in interrupted:
+                if row["execution_mode"] == "codex":
+                    # A process crash loses the executor's live ownership and may
+                    # leave writes without an independent completion snapshot.
+                    conn.execute(
+                        "UPDATE tasks SET status='dead_letter',error=?,version=version+1,updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                        ("代码执行中断，需人工核对残留进程、Diff与证据后另行授权", row["id"]),
+                    )
+                    conn.execute(
+                        "INSERT INTO task_events(task_id,from_status,to_status,detail,actor,evidence_json) VALUES(?,?,?,?,?,?)",
+                        (row["id"], row["status"], "dead_letter", "代码任务中断，禁止自动重复写入",
+                         "automation-recovery", json.dumps({"safe_replay": False, "human_review_required": True})),
+                    )
+                    continue
+                replayable.append(row["id"])
                 conn.execute(
                     "UPDATE tasks SET status='rework',error=?,version=version+1,updated_at=CURRENT_TIMESTAMP "
                     "WHERE id=? AND status=?",
@@ -214,9 +291,9 @@ class TaskStore:
                 )
             rows = conn.execute(
                 "SELECT id FROM tasks WHERE automation_mode='automatic' "
-                "AND (status='queued' OR id IN (%s)) ORDER BY created_at,id" % (
-                    ",".join("?" for _ in interrupted) or "NULL"
-                ), tuple(row["id"] for row in interrupted),
+                "AND (status IN ('queued','spec_ready') OR id IN (%s)) ORDER BY created_at,id" % (
+                    ",".join("?" for _ in replayable) or "NULL"
+                ), tuple(replayable),
             ).fetchall()
         return [row["id"] for row in rows]
 
@@ -280,6 +357,10 @@ class TaskStore:
         if not note:
             raise ValueError("审核理由不能为空")
         target = "completed" if decision == "approve" else "rework"
+        task = self.get(task_id)
+        if decision == 'approve' and task.get('requirement_id') == 'WB-L04-BOOTSTRAP':
+            from .bootstrap_source import verify_control_source
+            verify_control_source((task.get('result') or {}).get('bootstrap_source'))
         return self.transition(
             task_id, target, f"老板终审：{decision}；{note}", actor=reviewer,
             evidence={"reviewer": reviewer, "decision": decision, "note": note, "opc_final": True},

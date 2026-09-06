@@ -14,16 +14,18 @@ from flowerp.mock_data import load_mock_data, verify_mock_data
 from flowerp.operations import BackupService, HealthService, RuntimeCoordinator
 from .automation import DeliveryAutomation
 from .course_mainline import LESSONS, create_lesson_task, lesson_baseline_status, lesson_contract, validate_mainline, write_lesson_spec
-from .course_workspace import CourseWorktreeManager, LessonSubprocessEvalRunner, differential_evidence
+from .course_workspace import CourseWorktreeManager
 from .course_release import CourseBaselinePublisher, CourseCandidateArtifacts
 from .execution import CodexExecutionRunner
 from .feedback import add_feedback
+from .http_bind import ServerBindError, report_bind_error
 from .platform_bootstrap import bootstrap_platform
 from .platform_server import serve as serve_harness
 from .server import serve
 from .spec import load_spec
 from .task_store import TaskStore
 from .workflow import run_task
+from .bootstrap import add_bootstrap_commands, run_bootstrap_command
 
 
 def demo(runtime_dir: str | None = None) -> dict:
@@ -55,25 +57,48 @@ def demo(runtime_dir: str | None = None) -> dict:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="FlowERP delivery workbench")
+    parser = argparse.ArgumentParser(
+        description="个人研发工作台 CLI。工作台组织任务、授权与复验；Codex 是开发伙伴；FlowERP 是持续交付的客户产品。",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "命令分组\n"
+            "  工作台: serve-workbench, course-*, task-*, spec, feedback\n"
+            "  客户项目: serve, demo, mock-data, verify-mock-data\n"
+            "  可选平台（非大纲通过项）: harness-serve, harness-bootstrap\n"
+        ),
+    )
     sub = parser.add_subparsers(dest="command", required=True)
-    demo_cmd = sub.add_parser("demo"); demo_cmd.add_argument("--runtime-dir")
-    mock_cmd = sub.add_parser("mock-data", help="生成幂等的完整 ERP 验收账套")
+    add_bootstrap_commands(sub)
+    demo_cmd = sub.add_parser("demo", help="客户项目：跑通一条 FlowERP 演示账本")
+    demo_cmd.add_argument("--runtime-dir")
+    mock_cmd = sub.add_parser("mock-data", help="客户项目：生成幂等的完整 ERP 验收账套")
     mock_cmd.add_argument("--runtime-dir", default=".runtime")
-    verify_mock_cmd = sub.add_parser("verify-mock-data", help="验证完整 ERP 验收账套")
+    verify_mock_cmd = sub.add_parser("verify-mock-data", help="客户项目：验证完整 ERP 验收账套")
     verify_mock_cmd.add_argument("--runtime-dir", default=".runtime")
-    serve_cmd = sub.add_parser("serve"); serve_cmd.add_argument("--host", default="127.0.0.1"); serve_cmd.add_argument("--port", type=int, default=8000); serve_cmd.add_argument("--runtime-dir", default=".runtime")
-    harness_serve_cmd = sub.add_parser("harness-serve", help="可选：启动 legacy Web 面板（8010）")
+    serve_cmd = sub.add_parser("serve", help="客户项目：启动 FlowERP（默认 :8000）")
+    serve_cmd.add_argument("--host", default="127.0.0.1")
+    serve_cmd.add_argument("--port", type=int, default=8000)
+    serve_cmd.add_argument("--runtime-dir", default=".runtime")
+    workbench_serve_cmd = sub.add_parser("serve-workbench", help="工作台：启动跟跑必做驾驶舱（默认 :8001）")
+    workbench_serve_cmd.add_argument("--host", default="127.0.0.1")
+    workbench_serve_cmd.add_argument("--port", type=int, default=8001)
+    workbench_serve_cmd.add_argument("--runtime-dir", default=".runtime")
+    workbench_serve_cmd.add_argument('--erp-url', default='http://127.0.0.1:8000', help='客户项目的本机地址')
+    workbench_serve_cmd.add_argument("--enable-code-execution", action="store_true", help="允许在网页确认课程方案后授权隔离代码执行")
+    harness_serve_cmd = sub.add_parser("harness-serve", help="可选平台：完整 Harness（:8010，非大纲通过项）")
     harness_serve_cmd.add_argument("--host", default="127.0.0.1")
     harness_serve_cmd.add_argument("--port", type=int, default=8010)
     harness_serve_cmd.add_argument("--runtime-dir", default=".harness-runtime")
     harness_serve_cmd.add_argument("--repository-root")
     harness_serve_cmd.add_argument("--bootstrap", action="store_true",
                                    help="启动时自动注册当前仓库为 PROJECT-FLOWERP")
-    harness_bootstrap_cmd = sub.add_parser("harness-bootstrap", help="初始化 Harness 平台并注册默认目标项目")
+    harness_bootstrap_cmd = sub.add_parser("harness-bootstrap", help="可选平台：初始化 Harness（非大纲通过项）")
     harness_bootstrap_cmd.add_argument("--runtime-dir", default=".harness-runtime")
     harness_bootstrap_cmd.add_argument("--repository-root")
-    spec_cmd = sub.add_parser("spec"); spec_cmd.add_argument("path", nargs="?", default="FDE_SPEC.md")
+    spec_cmd = sub.add_parser("spec", help="工作台：解析并校验一份 Spec")
+    spec_cmd.add_argument("path", nargs="?", default="FDE_SPEC.md")
+    feedback_cmd = sub.add_parser("feedback", help="工作台：查看结构化反馈摘要")
+    feedback_cmd.add_argument("--runtime-dir", default=".runtime")
     course_contract_cmd = sub.add_parser("course-contract", help="查看某讲的可执行课程合同")
     course_contract_cmd.add_argument("--lesson", type=int, choices=range(1, 17))
     course_spec_cmd = sub.add_parser("course-spec", help="生成只包含本讲增量的交付 Spec")
@@ -82,6 +107,12 @@ def main() -> int:
     course_spec_cmd.add_argument("--eval-case", action="append", default=[], help="L15/L16 本次需求新增 Eval，可重复")
     course_status_cmd = sub.add_parser("course-status", help="检查 16 讲合同、Eval 映射和逐讲基线")
     course_status_cmd.add_argument("--require-baselines", action="store_true", help="缺少逐讲 Git 起始标签时返回失败")
+    course_prepare_cmd = sub.add_parser("course-prepare", help="为本讲创建剥离增量后的隔离工作区")
+    course_prepare_cmd.add_argument("--lesson", type=int, choices=range(1, 17), required=True)
+    course_prepare_cmd.add_argument("--runtime-dir", default=".runtime")
+    course_prepare_cmd.add_argument("--task-id", help="默认 TASK-PREP-LNN")
+    course_prepare_cmd.add_argument("--source", choices=("baseline", "working-tree"), default="baseline",
+                                    help="默认课程标签；working-tree 明确使用当前源代码的本地快照（不发布标签）")
     course_eval_cmd = sub.add_parser("course-eval", help="只运行某讲合同声明的阻断 Eval")
     course_eval_cmd.add_argument("--lesson", type=int, choices=range(1, 17), required=True)
     course_eval_cmd.add_argument("--no-report", action="store_true")
@@ -96,6 +127,8 @@ def main() -> int:
     course_submit_cmd.add_argument("--execution-timeout", type=int, default=900)
     course_submit_cmd.add_argument("--eval-case", action="append", default=[], help="L15/L16 本次需求新增 Eval，可重复")
     course_submit_cmd.add_argument("--session-baseline-ref", help="含本次红灯 Eval、但尚未实现需求的 Git ref/提交")
+    course_submit_cmd.add_argument("--bootstrap-task-id", help="L04 已由非执行者接受的 WB-L04-BOOTSTRAP 任务编号")
+    course_submit_cmd.add_argument('--requirement-spec', type=Path, help='L04 使用 L03 确认的 Spec；L15/L16 使用本次六段式需求 Markdown 文件')
     baseline_audit_cmd = sub.add_parser("course-baseline-audit", help="审计某提交能否作为逐讲起始基线")
     baseline_audit_cmd.add_argument("--lesson", type=int, choices=range(1, 17), required=True)
     baseline_audit_cmd.add_argument("--candidate-ref", required=True)
@@ -109,6 +142,12 @@ def main() -> int:
     baseline_publish_cmd.add_argument("--confirm", action="store_true", help="确认创建本地 annotated tag")
     candidate_export_cmd = sub.add_parser("course-candidate-export", help="导出具名审核通过的隔离候选 Patch")
     candidate_export_cmd.add_argument("task_id"); candidate_export_cmd.add_argument("--runtime-dir", default=".runtime")
+    release_index_cmd = sub.add_parser('course-release-index', help='汇集发布证据引用，列出缺项；不代替人审')
+    release_index_cmd.add_argument('task_id')
+    release_index_cmd.add_argument('--runtime-dir', default='.runtime')
+    release_index_cmd.add_argument('--cold-start-evidence')
+    release_index_cmd.add_argument('--product-evidence')
+    release_index_cmd.add_argument('--risks-file')
     candidate_promote_cmd = sub.add_parser("course-candidate-promote", help="校验并应用候选 Patch 到干净目标工作区")
     candidate_promote_cmd.add_argument("task_id"); candidate_promote_cmd.add_argument("--runtime-dir", default=".runtime")
     candidate_promote_cmd.add_argument("--target-workspace", required=True)
@@ -154,11 +193,24 @@ def main() -> int:
     task_list_cmd = sub.add_parser("task-list", help="列出交付任务")
     task_list_cmd.add_argument("--runtime-dir", default=".runtime"); task_list_cmd.add_argument("--limit", type=int, default=30)
     args = parser.parse_args()
+    if args.command in {"workbench-init", "workbench-project-add", "workbench-task-create", "workbench-evidence-add", "workbench-status"}:
+        return run_bootstrap_command(args)
+    if args.command == "feedback":
+        from .feedback import summary as feedback_summary
+
+        print(json.dumps(feedback_summary(str(Path(args.runtime_dir) / "workbench.db")), ensure_ascii=False, indent=2))
+        return 0
     if args.command == "course-contract":
         result = lesson_contract(args.lesson).as_dict() if args.lesson else {
             "schema_version": "1.0", "lessons": [item.as_dict() for item in LESSONS],
         }
         print(json.dumps(result, ensure_ascii=False, indent=2)); return 0
+    if args.command == "course-prepare":
+        isolation = CourseWorktreeManager(Path.cwd(), Path(args.runtime_dir)).prepare_for_lesson(
+            args.lesson, task_id=args.task_id, source=args.source,
+        )
+        print(json.dumps(isolation, ensure_ascii=False, indent=2))
+        return 0
     if args.command == "course-spec":
         output = args.output or f".runtime/course/L{args.lesson:02d}/FDE_SPEC.md"
         lesson = lesson_contract(args.lesson)
@@ -184,119 +236,29 @@ def main() -> int:
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 1 if result["summary"]["blocking_failed"] else 0
     if args.command == "course-submit":
-        from eval.harness import run_suite
-        runtime = Path(args.runtime_dir)
-        task_store = TaskStore(runtime / "workbench.db")
-        lesson = lesson_contract(args.lesson)
-        dynamic_cases = tuple(dict.fromkeys(args.eval_case))
-        if lesson.dynamic_eval_required:
-            if not dynamic_cases:
-                parser.error(f"L{args.lesson:02d} 必须用 --eval-case 声明本次需求新增的 Eval")
-            reused = sorted(set(dynamic_cases) & set(lesson.eval_cases))
-            if reused:
-                parser.error("动态 Eval 必须是本次需求新增用例，不能重复静态合同 Eval：" + ", ".join(reused))
-            if args.execute_code and not args.session_baseline_ref:
-                parser.error(f"L{args.lesson:02d} 真实执行必须提供 --session-baseline-ref")
-        selected_cases = lesson.eval_cases + dynamic_cases
-        baseline = lesson_baseline_status(Path.cwd(), args.lesson)
-        if args.execute_code and not baseline["baseline_commit"]:
-            parser.error(
-                f"真实课程执行需要 {lesson.baseline_ref} 起始标签；请先建设课程基线"
+        from .course_delivery import submit_course
+        try:
+            output = submit_course(
+                repository_root=Path.cwd(), runtime_dir=args.runtime_dir,
+                lesson_number=args.lesson, actor=args.actor, execute_code=args.execute_code,
+                execution_timeout=args.execution_timeout, eval_cases=tuple(args.eval_case),
+                session_baseline_ref=args.session_baseline_ref,
+                bootstrap_task_id=args.bootstrap_task_id,
+                requirement_spec_text=args.requirement_spec.read_text(encoding='utf-8') if args.requirement_spec else None,
             )
-        task = create_lesson_task(
-            task_store, args.lesson, runtime, actor=args.actor,
-            execution_mode="codex" if args.execute_code else "verify",
-            execution_timeout_seconds=args.execution_timeout,
-            additional_eval_cases=dynamic_cases,
-        )
-        workspace = Path.cwd()
-        pre_report = None
-        if args.execute_code:
-            try:
-                worktree_ref = lesson.baseline_ref
-                qualified_ref = False
-                if args.session_baseline_ref:
-                    resolved = subprocess.run(
-                        ["git", "rev-parse", "--verify", f"{args.session_baseline_ref}^{{commit}}"],
-                        cwd=Path.cwd(), text=True, capture_output=True, check=False,
-                    )
-                    if resolved.returncode != 0:
-                        raise ValueError("会话基线无法解析为 Git 提交")
-                    ancestry = subprocess.run(
-                        ["git", "merge-base", "--is-ancestor", baseline["baseline_commit"], resolved.stdout.strip()],
-                        cwd=Path.cwd(), capture_output=True, check=False,
-                    )
-                    if ancestry.returncode != 0:
-                        raise ValueError("会话基线必须位于本讲固定起始基线之后")
-                    worktree_ref = f"{args.session_baseline_ref}^{{commit}}"
-                    qualified_ref = True
-                isolation = CourseWorktreeManager(Path.cwd(), runtime).prepare(
-                    task["id"], worktree_ref, qualified_ref=qualified_ref,
-                )
-                workspace = Path(isolation["path"])
-                task_store.append_event(
-                    task["id"], "已创建课程隔离 Worktree", actor=args.actor, evidence=isolation,
-                )
-                pre_runner = LessonSubprocessEvalRunner(
-                    workspace, runtime, task["id"], selected_cases, "pre",
-                )
-                pre_report = pre_runner()
-                task_store.append_event(
-                    task["id"], "执行前课程 Eval 已完成", actor=args.actor,
-                    evidence={"summary": pre_report.get("summary"), "runner": pre_report.get("runner")},
-                )
-                if pre_report.get("summary", {}).get("decision") != "block":
-                    result = task_store.transition(
-                        task["id"], "failed", "课程起始基线没有稳定红灯，拒绝零增量交付",
-                        actor=args.actor, evidence={"pre_eval": pre_report.get("summary")},
-                    )
-                    print(json.dumps({
-                        "lesson": args.lesson, "implementation_evidence": False,
-                        "baseline": baseline, "isolation": isolation, "task": result,
-                    }, ensure_ascii=False, indent=2))
-                    return 1
-                lesson_suite = LessonSubprocessEvalRunner(
-                    workspace, runtime, task["id"], selected_cases, "post",
-                )
-            except Exception as exc:
-                result = task_store.transition(
-                    task["id"], "failed", "课程隔离或执行前 Eval 失败", actor=args.actor,
-                    evidence={"error_type": type(exc).__name__}, error=str(exc),
-                )
-                print(json.dumps({"lesson": args.lesson, "task": result}, ensure_ascii=False, indent=2))
-                return 1
-        else:
-            isolation = None
-
-            def lesson_suite(suite: str, write_report: bool = True) -> dict:
-                return run_suite(suite, write_report, selected_cases)
-
-        result = run_task(
-            task_store, task["id"], args.actor, suite_runner=lesson_suite,
-            execution_runner=CodexExecutionRunner(workspace, runtime),
-        )
-        differential = None
-        if args.execute_code and pre_report is not None:
-            differential = differential_evidence(pre_report, result.get("result") or {}, result)
-            task_store.append_event(
-                task["id"], "课程红绿差分判定已完成", actor=args.actor, evidence=differential,
-            )
-            if result.get("status") == "review" and not differential["accepted"]:
-                result = task_store.transition(
-                    task["id"], "rework", "未满足执行前红、代码有变更、执行后绿的课程差分合同",
-                    actor=args.actor, evidence=differential,
-                )
-        output = {
-            "lesson": args.lesson,
-            "implementation_evidence": bool(differential and differential["accepted"]),
-            "baseline": baseline,
-            "isolation": isolation,
-            "differential": differential,
-            "warning": None if args.execute_code else "verify-only 只复验已有候选，不是本讲实现证据",
-            "task": result,
-        }
+        except (ValueError, OSError) as error:
+            parser.error(str(error))
         print(json.dumps(output, ensure_ascii=False, indent=2))
-        return 0 if result.get("status") == "review" else 1
+        return 0 if output["task"].get("status") == "review" else 1
+    if args.command == 'course-release-index':
+        from .release_index import create_release_index
+        try:
+            output = create_release_index(args.runtime_dir, args.task_id, cold_start=args.cold_start_evidence,
+                                          product=args.product_evidence, risks=args.risks_file)
+        except (ValueError, OSError, KeyError) as error:
+            parser.error(str(error))
+        print(json.dumps(output, ensure_ascii=False, indent=2))
+        return 0
     if args.command in {"course-baseline-audit", "course-baseline-publish"}:
         publisher = CourseBaselinePublisher(Path.cwd(), args.runtime_dir)
         if args.command == "course-baseline-publish":
@@ -317,9 +279,30 @@ def main() -> int:
         else:
             result = artifacts.cleanup(TaskStore(runtime / "workbench.db"), args.task_id)
         print(json.dumps(result, ensure_ascii=False, indent=2)); return 0
-    if args.command == "serve": serve(args.host, args.port, args.runtime_dir); return 0
+    if args.command == "serve":
+        try:
+            serve(args.host, args.port, args.runtime_dir)
+        except ServerBindError as error:
+            return report_bind_error(error)
+        return 0
+    if args.command == "serve-workbench":
+        from .workbench_server import serve as serve_workbench
+        from .runtime_lease import WorkbenchRuntimeInUse
+
+        try:
+            serve_workbench(args.host, args.port, args.runtime_dir, enable_code_execution=args.enable_code_execution,
+                            erp_url=args.erp_url)
+        except ServerBindError as error:
+            return report_bind_error(error)
+        except WorkbenchRuntimeInUse as error:
+            print(str(error))
+            return 2
+        return 0
     if args.command == "harness-serve":
-        serve_harness(args.host, args.port, args.runtime_dir, args.repository_root, args.bootstrap)
+        try:
+            serve_harness(args.host, args.port, args.runtime_dir, args.repository_root, args.bootstrap)
+        except ServerBindError as error:
+            return report_bind_error(error)
         return 0
     if args.command == "harness-bootstrap":
         print(json.dumps(bootstrap_platform(args.runtime_dir, args.repository_root), ensure_ascii=False, indent=2))

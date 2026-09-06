@@ -87,15 +87,19 @@ def ensure_task_mainline(body: str) -> str:
 
 def main() -> None:
     contracts = outline_contracts()
-    for relative in (Path("docs/courses"), Path("course/tasks")):
+    for relative in (Path("docs/courses"), Path("docs/courses/tasks")):
         directory = ROOT / relative
-        for path in sorted(directory.glob("L??-*.md")):
-            lesson = int(path.name[1:3])
+        paths = [path for path in sorted(directory.glob("L??-*.md")) if not path.name.endswith("-教师备课说明.md")]
+        paths.extend(path for number in range(1, 17) if (path := ROOT / f"docs/courses/L{number:02d}" / ("行动卡.md" if directory.name == "tasks" else "阅读讲义.md")).is_file())
+        for path in paths:
+            lesson = int(path.parent.name[1:]) if path.parent.name in ("L01", "L02") else int(path.name[1:3])
+            if lesson not in contracts:
+                continue
             title, contract_lines = contracts[lesson]
             title_line = f"# L{lesson:02d}｜{title}"
             body = path.read_text(encoding="utf-8")
             updated = replace_header(body, title_line, contract_lines)
-            if relative.as_posix() == "course/tasks":
+            if relative.as_posix() == "docs/courses/tasks":
                 updated = ensure_task_mainline(updated)
             if updated != body:
                 path.write_text(updated, encoding="utf-8")

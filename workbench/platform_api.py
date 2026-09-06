@@ -122,6 +122,24 @@ class HarnessPlatformAPI:
                     "repository_root": str(self.repository_root),
                     "project_count": len(self.projects.list()),
                 })
+            if path == "/api/v1/flowerp/status" and method == "GET":
+                from .managed_flowerp import is_flowerp_live
+                host = str(query.get("host") or "127.0.0.1")
+                port = int(query.get("port") or "8000")
+                live = is_flowerp_live(host, port, timeout=0.4)
+                url = f"http://{host}:{port}"
+                return PlatformResponse(200, {
+                    "live": live,
+                    "url": url,
+                    "service": "flowerp" if live else None,
+                    "pages": [
+                        {"id": "dashboard", "label": "经营驾驶舱", "href": f"{url}/#dashboard"},
+                        {"id": "sales", "label": "销售订单", "href": f"{url}/#sales"},
+                        {"id": "inventory", "label": "库存管理", "href": f"{url}/#inventory"},
+                        {"id": "purchases", "label": "采购管理", "href": f"{url}/#purchases"},
+                        {"id": "finance", "label": "财务中心", "href": f"{url}/#finance"},
+                    ],
+                })
             if path == "/api/v1/capabilities" and method == "GET":
                 return PlatformResponse(200, {
                     **self.providers.capabilities(),
@@ -556,7 +574,7 @@ class HarnessPlatformAPI:
             # human boss triggering is fine
             pass
         elif str(actor).startswith("agent:") and actor != reviewer_id:
-            raise ValueError("只有质检员本人或老板可记录质检意见")
+            raise ValueError("只有测试本人或老板可记录测试意见")
         critique = build_agent_critique(task, reviewer_id=reviewer_id)
         if data.get("note"):
             critique["note"] = str(data.get("note")).strip() or critique["note"]

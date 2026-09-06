@@ -129,8 +129,8 @@ def _stopped_content(payload: dict) -> str:
 
 
 def _critique_content(payload: dict) -> str:
-    name = payload.get("reviewer_name") or payload.get("reviewer_id") or "质检员"
+    name = payload.get("reviewer_name") or payload.get("reviewer_id") or "测试"
     suggestion = payload.get("suggested_decision") or "—"
     note = payload.get("note") or ""
-    return f"[质检员 · {name}] 建议={suggestion}\n{note}".strip()
+    return f"[测试 · {name}] 建议={suggestion}\n{note}".strip()
 

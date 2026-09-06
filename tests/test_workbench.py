@@ -53,6 +53,39 @@ class WorkbenchTests(unittest.TestCase):
         self.assertIn("库存", load_spec().goal)
         with self.assertRaises(ValueError): parse_spec("## 目标\n只有目标")
 
+    def test_spec_parser_rejects_empty_duplicate_misordered_and_unknown_sections(self) -> None:
+        valid = """# REQ-TEST
+
+## 来源
+source
+
+## 目标
+goal
+
+## 非目标
+non-goal
+
+## 约束
+constraint
+
+## 验收用例
+acceptance
+
+## 完成定义
+done
+"""
+        with self.assertRaisesRegex(ValueError, "内容不能为空：目标"):
+            parse_spec(valid.replace("## 目标\ngoal", "## 目标\n"))
+        with self.assertRaisesRegex(ValueError, "重复章节：目标"):
+            parse_spec(valid.replace("## 非目标", "## 目标\nanother goal\n\n## 非目标"))
+        with self.assertRaisesRegex(ValueError, "章节顺序错误"):
+            parse_spec(valid.replace(
+                "## 目标\ngoal\n\n## 非目标\nnon-goal",
+                "## 非目标\nnon-goal\n\n## 目标\ngoal",
+            ))
+        with self.assertRaisesRegex(ValueError, "未知章节：实现方案"):
+            parse_spec(valid.replace("## 完成定义", "## 实现方案\nnot allowed\n\n## 完成定义"))
+
     def test_channel_callback_requirement_generates_lease_acceptance(self) -> None:
         spec = build_delivery_spec(
             "渠道回传必须通过具名 Worker 租约执行并有界重试",
@@ -91,6 +124,37 @@ class WorkbenchTests(unittest.TestCase):
                 normalize_write_scope(["../outside"])
             with self.assertRaises(ValueError):
                 normalize_write_scope([".env"])
+
+    def test_write_scope_rejects_absolute_paths_before_normalization(self) -> None:
+        for value in ("/flowerp", "\\flowerp", "//server/share", "C:/flowerp", "../flowerp"):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                normalize_write_scope([value])
+        self.assertEqual(["flowerp", "tests/test_flowerp.py"],
+                         normalize_write_scope(["flowerp/", "tests\\test_flowerp.py"]))
+
+    def test_code_task_cannot_fall_back_to_verify_or_incomplete_evidence(self) -> None:
+        runners = (None, lambda task: {"mode": "verification_only", "success": True},
+                   lambda task: {"mode": "codex_exec", "changed_files": []})
+        for runner in runners:
+            with self.subTest(runner=runner), tempfile.TemporaryDirectory() as tmp:
+                store = TaskStore(Path(tmp) / "tasks.db")
+                task = store.create("受控修改", execution_mode="codex", write_scope=["flowerp"])
+                evaluated = []
+                result = run_task(store, task["id"], execution_runner=runner,
+                                  suite_runner=lambda *a, **k: evaluated.append(True))
+                self.assertEqual("rework", result["status"])
+                self.assertEqual([], evaluated)
+                self.assertIsNone(result["reviewed_by"])
+
+    def test_code_task_with_executor_evidence_still_requires_human_review(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = TaskStore(Path(tmp) / "tasks.db")
+            task = store.create("受控修改", execution_mode="codex", write_scope=["flowerp"])
+            result = run_task(store, task["id"],
+                              execution_runner=lambda task: {"success": True, "mode": "codex_exec", "changed_files": ["flowerp/service.py"]},
+                              suite_runner=lambda *a, **k: self.report())
+            self.assertEqual("review", result["status"])
+            self.assertIsNone(result["reviewed_by"])
 
     def test_codex_execution_runner_records_real_diff_commands_and_usage(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

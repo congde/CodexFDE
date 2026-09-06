@@ -10,7 +10,7 @@ import time
 import uuid
 from datetime import datetime, timezone
 from http import HTTPStatus
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -20,6 +20,7 @@ from flowerp.seed import load_ecommerce_sample
 from flowerp.config import load_settings
 from flowerp.operations import RuntimeCoordinator
 from .api_v2 import APIRouter
+from .http_bind import create_http_server
 from .task_store import TaskStore
 from .workflow import run_task
 
@@ -227,7 +228,16 @@ def serve(host: str = "127.0.0.1", port: int = 8000, runtime_dir: str = ".runtim
     app = App(runtime_dir)
     if host == "127.0.0.1" and app.settings.host != "127.0.0.1": host = app.settings.host
     if port == 8000 and app.settings.port != 8000: port = app.settings.port
-    server = ThreadingHTTPServer((host, port), make_handler(app))
+    server = create_http_server(
+        host,
+        port,
+        make_handler(app),
+        service_name="FlowERP",
+        retry_command=(
+            "python .\\main.py --port 8080  "
+            "（等价：python -X utf8 -m workbench.cli serve --port 8080）"
+        ),
+    )
     server.daemon_threads = False
     coordinator = RuntimeCoordinator(app.store)
     owner_id = f"{socket.gethostname()}:{os.getpid()}:{uuid.uuid4().hex[:12]}"
@@ -249,7 +259,7 @@ def serve(host: str = "127.0.0.1", port: int = 8000, runtime_dir: str = ".runtim
         threading.Thread(target=server.shutdown, daemon=True).start()
 
     if threading.current_thread() is threading.main_thread():
-        for name in ("SIGINT", "SIGTERM"):
+        for name in ("SIGINT", "SIGTERM", "SIGBREAK"):
             if hasattr(signal, name): signal.signal(getattr(signal, name), request_shutdown)
     _structured_log({"level": "INFO", "event": "server_started", "url": f"http://{host}:{port}",
                      "instance_id": owner_id, "fencing_token": lease["fencing_token"]})

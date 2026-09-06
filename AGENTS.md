@@ -2,7 +2,9 @@
 
 ## 项目目标
 
-这是 Codex + FDE 行动营的单一主线仓库。课程遵循明确的先后关系：先在 L01～L04 构建一个类似 DeepSeek Harness 的**个人研发自动化工作台 V0**，再从 L05 起持续通过这套工作台交付电商 FlowERP。Spec、Eval、Harness、Loop、Graph、API、Web 与反馈闭环不是孤立的工具目录，而是在一次次 ERP 需求、失败和验收中被迫升级的可复用能力。
+这是 Codex AI 工程交付行动营的单一主线仓库。全课程统一使用一句建设主线：**用 Codex，搭建个人 AI 研发工作台；通过工作台组织人与 AI 协同，持续开发 FlowERP。** Codex 是 AI 开发伙伴，个人工作台是第一个建设成果和后续协同阵地，FlowERP 是持续增长的客户产品。三者不是并列的三套业务系统，也不得把个人工作台讲成 FlowERP 的员工门户。
+
+课程遵循明确的先后关系：先在 L01～L04 构建一个类似 DeepSeek Harness 的**个人研发自动化工作台 V0**，再从 L05 起持续通过这套工作台交付电商 FlowERP。Spec、Eval、Harness、Loop、Graph、API、Web 与反馈闭环不是孤立的工具目录，而是在一次次 ERP 需求、失败和验收中被迫升级的可复用能力。
 
 课程的最终作品是**工作台驱动的电商 ERP 持续交付系统**，包含两个不可拆分的可运行成果：可复用的研发自动化工作台，以及由它逐讲构建并留下证据链的 FlowERP。FlowERP 是客户项目、实验场和验收场，不得把课程改写为纯 ERP 功能开发课，也不得让 FlowERP 退化为冻结夹具、背景故事或最终演示壳。
 
@@ -12,15 +14,16 @@
 
 ### 唯一事实源与叙事主次
 
-1. `docs/课程大纲-Codex-FDE行动营-个人研发自动化工作台.md` 是 16 讲标题、核心内容、演示结果、课内增量和通过标准的唯一课程合同。
+1. `docs/课程大纲-Codex-FDE行动营-个人研发自动化工作台.md` 是 16 讲标题、核心内容、演示结果、课内增量和通过标准的唯一课程合同。16 讲标题必须与 `docs/课表｜Codex AI 工程交付行动营.md` 的「主题」列逐字一致。
 2. `docs/courses/国家级一流本科课程建设方案.md` 是课程目标、学情、混合式教学、评价、课程思政、持续改进和申报证据的建设母版。
 3. 项目叙事必须保持三层关系：
-   - **方法主线**：先构建个人研发自动化工作台，再通过它持续交付；
+   - **建设主线**：用 Codex 搭建个人研发自动化工作台，再通过工作台组织人与 Codex 协同开发 FlowERP；
    - **产品主线**：FlowERP 从主数据、库存、订单、采购到可操作界面逐讲增长；
    - **学习证据**：学生的判断、实现、失败、修订、互评、迁移和答辩。
-4. 每讲必须回答四问（由原“三问”扩展）：本讲交付了什么 ERP 产品状态；该交付暴露了什么可重复工程问题；工作台新增或验证了什么能力；什么证据证明学生本人能够迁移该能力。
+4. 每讲必须回答四问，并在四问之前回答一个 Codex 角色问（合计五问）：Codex 当讲如何与学生、业务人员、复验者或审核者协作；本讲交付了什么 ERP 产品状态；该交付暴露了什么可重复工程问题；工作台新增或验证了什么能力；什么证据证明学生本人能够迁移该能力。
 5. L01～L04 必须形成能接收 Spec、受控修改并运行最小 Eval 的工作台 V0；L05～L15 原则上每讲必须产生 ERP 可观察增量或对既有增量的真实修复，禁止连续两讲让 ERP 产品状态不变；L16 必须由工作台现场交付一个此前未实现、范围受控的 ERP 小需求。
 6. 不得把 16 讲写成 FlowERP 功能目录，也不得把工作台写成脱离业务的工具清单。ERP 增量必须用于触发、验证或反证本讲工作台能力；工作台增量必须回到当讲或下一讲的 ERP 交付中接受验证。
+7. 必须讲清自举换挡：L01～L03 由学生直接监督 Codex 开发规则、Spec 与解析能力；L04 先补齐 Workbench V0，再由 V0 首次组织人与 Codex 协同交付 FlowERP；L05～L16 采用“现场问题 → 人与 Codex 协助升级工作台 → 工作台组织分工、授权、复验与审核 → FlowERP 结果及反馈回流”。FDE 统一解释为 Forward-Deployed Engineering 的现场、交付、能力三循环，不得写成工具堆叠或“模型自动进化”。
 
 ### 国家级一流本科课程建设要求
 
@@ -45,25 +48,33 @@
 - `workbench/`：Spec、任务 API、CLI、摘要和反馈。
 - `eval/`：唯一质量入口；Hook、CI、Loop、Graph 都复用它。
 - `agent/`：失败任务映射、有界 Loop 和显式状态图（课程跟跑必做）。
-- `web/`：无密钥的 FlowERP 业务演示面板（课程跟跑必做）。
-- `harness_web/`：可选的 Harness 平台驾驶舱（非大纲 L01～L16 通过标准）。
-- `course/tasks/`：16 讲目标卡、命令卡、验收卡。
-- `docs/courses/`：16 讲详细教学设计、讲师手册、建设方案和申报级验收清单。
+- `web/`：无密钥的 FlowERP **客户项目**界面（课程跟跑必做，默认 :8000，库为 `flowerp.db`）。
+- `workbench_web/`：跟跑必做的最小个人研发工作台驾驶舱（默认 :8001，库为 `workbench.db`）。
+- `harness_web/`：可选的完整 Harness 平台驾驶舱（非大纲 L01～L16 通过标准）。对照 DeepSeek Harness 的 Session/Profile/Plugin 与开源 Codex Harness 的 thread、event stream、approval、interrupt；不得声称产品等价或接入官方 app-server。
+- `docs/courses/`：L00～L16 学生讲义、课程蓝图和统一工作区。
+- `docs/courses/slides/`：L01～L16 独立课堂 PPT；标题和四项合同必须来自上位课表与大纲。
+- `docs/courses/tasks/`：L00～L16 目标卡、命令卡、验收卡。
+- `docs/courses/labs/`：L01～L16 实验提示词、提交模板和证据入口。
+- `docs/reference/`：学生使用的工作台、FlowERP 领域与运行参考资料。
 - `deploy/`：容器化与冷启动。
 
 ## 课程跟跑入口（勿与可选驾驶舱混淆）
 
 | 用途 | 入口 |
 |---|---|
-| 课表合同（唯一） | `docs/课程大纲-Codex-FDE行动营-个人研发自动化工作台.md` |
+| 极客时间课程名与主题合同 | `docs/课表｜Codex AI 工程交付行动营.md` |
+| 逐讲内容与通过标准合同 | `docs/课程大纲-Codex-FDE行动营-个人研发自动化工作台.md` |
+| 学生总入口 | `docs/README.md` |
 | 机器可执行投影 | `workbench/course_mainline.py` + `python -X utf8 -m workbench.cli course-*` |
-| 跟跑必做质量链 | `eval.harness`、`agent.loop`、`agent.graph`、`workbench.cli`、`web/` |
-| 可选平台 Web | `harness-workbench serve-web` → `harness_web/`（含 OPC Agent 员工视图） |
+| 跟跑必做质量链 | `eval.harness`、`agent.loop`、`agent.graph`、`workbench.cli`、`workbench_web/`（:8001）、`web/`（FlowERP :8000） |
+| 可选平台 Web | `harness-workbench serve-web` → `harness_web/`（:8010，含 OPC Agent 员工视图） |
 | OPC 超级个体+员工 | **可选挑战**；不得替代大纲具名人审 / 结业通过标准 |
 
-开课前检查：`python -X utf8 -m workbench.cli course-status`。只有 `course_ready: true` 且 `--require-baselines` 通过时，才可声称支持逐讲红→绿复现。
+开课前检查：`python -X utf8 -m workbench.cli course-status`。`course_ready: true` 只证明合同有效且线性标签存在；`baseline_semantics` 为 `progression_gate` 时，不能据此声称学员已经亲手构造本讲能力。可构造性看隔离工作区执行前红、范围内 Diff、执行后绿。
 
-L04+ 起始红由 `PROGRESSION.json` 门闩在讲师侧基线提交中表达；终态跟跑仓库不提交该文件（`course/baselines/` 不同步给学生）。这不等于已用真实产品缺能力切片重写全部 git 历史。
+跟跑必做工作台：`python -X utf8 -m workbench.cli serve-workbench`（:8001）。客户项目：`python -X utf8 -m workbench.cli serve`（:8000）。两套数据目录不得混用。
+
+L04+ 起始红由隔离工作区剥离本讲增量保证；`PROGRESSION.json` 只是讲师侧辅助门闩，终态跟跑仓库不提交该文件。这不等于已用真实产品缺能力切片重写全部 git 历史。
 ## 不可破坏的业务规则
 
 1. 可用库存不得为负；预占必须原子化。

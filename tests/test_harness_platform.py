@@ -6,6 +6,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from workbench.platform_api import HarnessPlatformAPI
 
@@ -240,6 +241,20 @@ class HarnessPlatformTests(unittest.TestCase):
                 "x-workbench-actor": "operator-a", "idempotency-key": "plug-2",
             }, {"enabled": True})
             self.assertTrue(enabled.body["enabled"])
+
+    def test_flowerp_status_route_reports_product_pages(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            repo = self._repo(root)
+            api = HarnessPlatformAPI(root / "harness", repo)
+            with patch("workbench.managed_flowerp.is_flowerp_live", return_value=True):
+                response = api.dispatch("GET", "/api/v1/flowerp/status", {}, {})
+            self.assertEqual(200, response.status)
+            self.assertTrue(response.body["live"])
+            self.assertEqual("flowerp", response.body["service"])
+            self.assertEqual("http://127.0.0.1:8000", response.body["url"])
+            self.assertIn("inventory", [page["id"] for page in response.body["pages"]])
+            api.shutdown()
 
 
 if __name__ == "__main__":

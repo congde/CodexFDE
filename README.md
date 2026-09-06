@@ -1,366 +1,229 @@
-# Codex + FDE 行动营｜工作台驱动的电商 ERP 持续交付系统
+# Codex AI 工程交付行动营：工作台驱动的 FlowERP 持续交付
 
-先建设一套类似 DeepSeek Harness 的个人研发自动化工作台，再通过它持续构建电商 FlowERP：把模糊需求变成可验收 Spec，用统一 Eval 收口质量，用有界 Loop / Graph 处理失败，再用 API、Web 与反馈完成下一轮产品交付。
+这不是一套把 16 讲拆成 16 个孤立工具的课程，也不是一门单纯开发 ERP 功能的课程。
 
-**Harness Workbench 是独立平台，不是 FlowERP 的子模块。** 它拥有独立进程、Web、API、项目注册表和 `.harness-runtime/` 数据库；FlowERP 是由它管理和持续交付的第一个目标项目。FlowERP 不是背景案例或冻结测试夹具，两者以“平台管理目标项目”的方式共同组成结业作品。
+项目只有一条主线：**先构建一套个人研发自动化工作台（Harness），再让它在真实的 FlowERP 需求、失败和验收中持续升级。**
 
-平台架构参考 DeepSeek 官方 Harness 的插件化、Profile、capability seam 和追加式 Session 日志思想，但课程 V0 是 Python 标准库的教学实现，不复制 Cordis 内核，也不宣称功能等价。版本化对照见 [`DeepSeek Harness 参考架构与差距`](docs/courses/DeepSeek-Harness参考架构与差距.md)。
+- L01～L04：做出能接收 Spec、受控修改代码并运行最小 Eval 的工作台 V0。
+- L05～L15：用工作台持续交付 FlowERP；每次真实交付都反过来升级 Eval、Loop、Graph、API、Web 和反馈闭环。
+- L16：从未实现的 ERP 小需求出发，现场完成一次有边界、有证据、可答辩的冷启动交付。
 
-工作台首先是一套围绕开发者核心工作，连接输入、生产、验证、交付、反馈和能力升级的长期运行系统。服务对象、核心产出、通用内核、开发者实例及设计红线见 [`个人 AI 工作台｜产品定义与能力模型`](docs/个人AI工作台-产品定义与能力模型.md)。
+这里有一个不能省略的自举换挡：L01～L03 工作台尚未完成，学生直接监督 Codex 开发规则、Spec 和解析能力；L04 先用 Codex 补齐 Workbench V0，再让 V0 首次以 Spec、写集、前红、Diff、后绿和人审约束 Codex 交付库存导出；L05 起由 FlowERP 现场问题推动工作台升级，再由升级后的工作台控制 Codex 修复或交付 ERP。完整故事合同见 [Codex × FDE 双阶段故事链](docs/courses/Codex-FDE双阶段故事链.md)。
 
-项目的统一目标、权威边界、16 讲建造顺序与当前收敛清单见 [`项目全景｜工作台驱动 FlowERP 持续交付`](docs/项目全景-工作台驱动FlowERP持续交付.md)。
+FDE 指 **Forward-Deployed Engineering**：贴近用户、数据和运行后果，通过现场循环决定做什么、交付循环约束怎样做、能力循环把重复失败沉淀为下次可复用的工作台资产。本项目不训练模型，不能把资产升级写成“模型自动进化”。
 
-开课、跟课和验收的统一入口见 [`课程指南｜个人 AI 研发工作台驱动 FlowERP 持续交付`](docs/FlowERP-Codex-FDE行动营-16讲课程汇总.md)；逐讲字段仍以课程大纲合同为准。
+最终成果不是一份课程文档，而是两个不可拆分的可运行产品：
+
+1. **个人研发自动化工作台**：负责把需求变成 Spec，约束执行范围，运行 Eval，保留失败、修订、审核和反馈证据。
+2. **FlowERP 客户项目**：负责提供真实业务约束，并检验工作台是否真的能持续交付。
+
+> 课程采用“案例先行、工具后置”。例如 L03 先用“库存导出”案例识别歧义、补齐验收口径，再介绍 Spec 模板、OpenSpec、Superpowers 等常见方法。通用工具用于迁移和比较，不替代对真实业务的判断。
+
+## 先认清三个入口
+
+| 入口 | 是否跟跑必做 | 用途 | 默认地址 / 数据 |
+|---|---:|---|---|
+| 个人研发工作台 | 是 | 查看课程任务、交付状态与证据链 | <http://127.0.0.1:8001> · `.runtime/workbench.db` |
+| FlowERP 客户项目 | 是 | 操作库存、订单、采购等 ERP 业务 | <http://127.0.0.1:8000> · `.runtime/flowerp.db` |
+| 完整 Harness 平台 | 否，可选挑战 | 体验 Profile、Provider、插件、Session 与多项目平台能力 | 终端 REPL / <http://127.0.0.1:8010> · `.harness-runtime/` |
+
+**8001 是工作台，8000 是客户项目。** 两个界面、两个数据库、两个职责，不能混用。8010 只属于可选的完整 Harness 平台，不是 L01～L16 的通过条件。
+
+## 60 秒理解这个项目
+
+一次完整交付不是“让 Codex 写完代码”，而是下面这条可追溯链路：
 
 ```text
-方法主线：L01–L04 构建 Workbench V0，后续持续升级
-产品主线：通过工作台逐讲构建 FlowERP
-学习证据：判断、实现、失败、修订、互评、迁移与答辩
+真实 ERP 需求
+  → 明确范围与不可破坏规则
+  → 形成可验收 Spec
+  → 先得到失败证据
+  → Codex 在允许写集内修改
+  → 运行同一套阻断 Eval
+  → 人工审核
+  → 交付摘要与反馈
+  → 将重复问题沉淀回工作台
 ```
 
-交付主链路：
+课程始终同时观察三条线：
 
-```text
-ERP 需求 → Spec → 工作台受控实现 → Eval / Harness → Repair / Loop / Graph
-→ ERP 增量验收 → API / Web → Feedback → 下一次 ERP 交付
+- **方法主线**：工作台如何从最小闭环成长为可复用的交付系统。
+- **产品主线**：FlowERP 如何从主数据逐步增长到库存、订单、采购和可操作 Web。
+- **学习证据**：学生能否留下首次判断、失败、修订、互评和迁移证据。
+
+学生从 [课程资料总入口](docs/README.md) 开始，课堂投影与复习使用 [L01～L16 独立课件](docs/courses/slides/README.md)。对外课程名与 16 讲标题以 [课表｜Codex AI 工程交付行动营](docs/课表｜Codex AI 工程交付行动营.md) 的「主题」列为准，每讲四项内容合同以 [16 讲课程大纲](docs/课程大纲-Codex-FDE行动营-个人研发自动化工作台.md) 为准。基础较弱或尚未配置环境的学员先完成 [L00 课前准备](docs/courses/L00-课前准备-安装工具与通过环境自检.md)及其[行动卡](docs/courses/tasks/L00-课前准备.md)。L00 不计入正式 16 讲，也不产生工作台或 FlowERP 产品增量。
+
+## 5 分钟跑起来
+
+### 1. 准备环境
+
+仓库要求 Python 3.10 或更高版本；课堂统一使用 Python 3.12.x。课程跟跑线默认只使用 Python 标准库和 SQLite，不依赖外部服务。学员跟课请先完成 L00，不要把本节当作 L01 已完成。
+
+Windows PowerShell：
+
+```powershell
+py -3.12 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -e .
 ```
 
-## 仓库里有什么
+macOS：
+
+```bash
+python3.12 -m venv .venv
+source .venv/bin/activate
+python -m pip install -e .
+```
+
+Linux 可以使用仓库允许的 Python 3.10+，但不作为课堂统一排错口径。后续命令默认已激活 `.venv`；Windows 也可继续直接调用 `.\.venv\Scripts\python.exe`。
+
+### 2. 先验证仓库
+
+```bash
+python -X utf8 -m workbench.cli demo
+python -X utf8 -m eval.harness --suite blocking
+python -X utf8 -m workbench.cli course-status
+```
+
+`course-status` 检查课程合同、Eval 映射和线性标签；`course_ready: true` 只说明课程合同可跟跑，不代表学生已经亲手构造了每讲能力。
+
+### 3. 启动两个必做界面
+
+终端 A——个人研发工作台：
+
+```bash
+python -X utf8 -m workbench.cli serve-workbench
+```
+
+打开 <http://127.0.0.1:8001>。
+
+可选的完整 Harness（8010）不是这个必做工作台（8001）的替代入口；需要联动 FlowERP 时使用后文的 `harness-workbench serve-web --boot`。
+
+终端 B——FlowERP 客户项目：
+
+```bash
+python -X utf8 -m workbench.cli init --username admin
+python -X utf8 -m workbench.cli serve
+```
+
+`init` 会在终端中安全提示输入并确认管理员密码。打开 <http://127.0.0.1:8000>，使用刚创建的管理员登录。已有运行数据时，`init` 会按命令自身的幂等与冲突规则处理，不要删除数据库来“重新开始”。
+
+| 你看到的内容 | 正确端口 |
+|---|---:|
+| 课程任务、Spec、Eval、事件与审核证据 | 8001 |
+| 商品、库存、销售订单、采购单和运营状态 | 8000 |
+| Profile、Provider、插件和 Session 平台视图 | 8010（可选） |
+
+## 16 讲怎样推进同一个系统
+
+| 阶段 | FlowERP 产品状态 | 工作台新增或验证的能力 | 关键学习证据 |
+|---|---|---|---|
+| L01～L04 · V0 | 建立商品/仓库基线，交付第一个库存导出切片 | 仓库约束、可验收 Spec、受控修改、最小 Eval | 首次判断、红灯、范围内 Diff、绿灯 |
+| L05～L08 · 质量链 | 幂等入库、可用库存、订单与原子预占逐步可用 | 失败优先 Eval、证据汇总、本地护栏、CI 复验 | 同一失败能被本地与 CI 稳定复现 |
+| L09～L12 · 自修复编排 | 取消释放库存、订单状态机、采购审批与入库 | 失败转任务、有界 Loop、独立子任务、显式 Graph 与人审 | 停止条件、回退路径、职责分离 |
+| L13～L15 · 产品化 | ERP 能力通过 API 和 Web 被真实操作 | 任务 API、工作台面板、摘要与真实反馈 | API/持久化一致、审核记录、修订前后对比 |
+| L16 · 冷启动答辩 | 现场交付一个此前未实现的受控 ERP 小需求 | 复用整条工作台交付链 | 新红灯、真实 Diff、新绿灯与具名答辩 |
+
+每讲必须回答四个问题：交付了什么 ERP 状态；暴露了什么重复工程问题；工作台新增或验证了什么能力；什么证据证明学生能迁移该能力。
+
+## 跟课的正确入口
+
+不要靠 README 猜每讲任务。课程大纲是合同，任务卡是行动入口，CLI 是机器可执行投影。
+
+### 查看合同与生成本讲 Spec
+
+```bash
+python -X utf8 -m workbench.cli course-contract --lesson 3
+python -X utf8 -m workbench.cli course-spec --lesson 3
+```
+
+以 L03 为例，详细教学设计见 [把模糊需求变成可验收 Spec](docs/courses/L03-把模糊需求变成可验收Spec.md)，学生行动卡见 [L03 Spec 驱动](docs/courses/tasks/L03-Spec驱动.md)。
+
+### 从 L04 起执行真实交付
+
+```bash
+python -X utf8 -m workbench.cli course-submit --lesson 4 --execute-code --actor student
+python -X utf8 -m workbench.cli course-eval --lesson 4
+```
+
+- `--execute-code` 明确授权 Codex 在本讲允许写集内修改代码。
+- `--verify-only` 只复验已有候选，不能作为学生亲手实现本讲增量的证据。
+- L04 以后由隔离工作区构造“执行前红、范围内 Diff、执行后绿”；不要把终态仓库已经通过测试误当成学习达成。
+
+### 检查逐讲基线
+
+```bash
+python -X utf8 -m workbench.cli course-status --require-baselines
+```
+
+当输出中的 `baseline_semantics` 为 `progression_gate` 时，线性标签只是讲师侧的进度门闩；可构造性仍要看隔离工作区中的实际证据。
+
+16 张目标卡、命令卡和验收卡统一收录在 [docs/courses/tasks](docs/courses/tasks/README.md)。
+
+## 仓库地图
 
 | 目录 | 职责 |
-| --- | --- |
-| `workbench/` | Spec、任务 API、CLI、执行沙箱、摘要与反馈 |
-| `workbench/delivery_view.py` | Task、Spec、执行、Eval、审核、反馈与进化的统一只读投影 |
-| `eval/` | 唯一质量入口；Hook、CI、Loop、Graph 都复用它 |
-| `agent/` | 失败任务映射、有界 Loop、显式状态图与人工审核 |
-| `flowerp/` | ERP 领域模型、SQLite 持久化与业务不变量 |
-| `harness_web/` | **可选** Harness 平台驾驶舱（非大纲必做；含 OPC 视图） |
-| `web/` | FlowERP 业务系统前端 + L14 最小交付状态与证据下钻（课程跟跑必做），不替代完整 Harness 驾驶舱 |
-| `tests/` | 单元、集成、HTTP、并发与恢复测试 |
-| `deploy/` | 容器化与冷启动 |
-| `course/tasks/` | 16 讲目标卡、命令卡、验收卡 |
-| `docs/` | 大纲合同、讲义与产品文档（本地资料） |
+|---|---|
+| [`flowerp/`](flowerp/) | ERP 领域模型、SQLite 持久化与业务服务 |
+| [`workbench/`](workbench/) | Spec、任务 API、CLI、交付摘要与反馈 |
+| [`eval/`](eval/) | 唯一质量入口；Hook、CI、Loop、Graph 都复用它 |
+| [`agent/`](agent/) | 失败任务映射、有界 Loop 与显式状态图 |
+| [`workbench_web/`](workbench_web/) | 跟跑必做的个人研发工作台界面，默认 8001 |
+| [`web/`](web/) | FlowERP 客户项目界面，默认 8000 |
+| [`harness_web/`](harness_web/) | 可选的完整 Harness 平台界面，默认 8010 |
+| [`docs/courses/slides/`](docs/courses/slides/) | 与极客时间主题逐讲对应的 16 份独立 PPT |
+| [`docs/courses/tasks/`](docs/courses/tasks/) | 16 讲目标卡、命令卡和验收卡 |
+| [`docs/courses/`](docs/courses/) | L00～L16 学生讲义、课程蓝图、任务卡与实验 |
+| [`docs/reference/`](docs/reference/) | 工作台、FlowERP 领域与运行边界参考资料 |
+| [`deploy/`](deploy/) | 容器化、运行与回滚资料 |
 
-## 课程跟跑主路径 vs 可选驾驶舱
+## 一次工作台任务怎样交付
 
-课表合同唯一事实源：[`docs/课程大纲-Codex-FDE行动营-个人研发自动化工作台.md`](docs/课程大纲-Codex-FDE行动营-个人研发自动化工作台.md)。  
-机器投影：`workbench/course_mainline.py`（不是第二份大纲）。
-
-| 用途 | 命令 / 目录 |
-| --- | --- |
-| **跟跑必做** | `workbench.cli`、`eval.harness`、`agent.loop` / `agent.graph`、`web/`（FlowERP） |
-| **可选平台驾驶舱** | `harness-workbench serve-web` → `harness_web/`（8010） |
-| **可选 OPC 挑战** | Agent 员工班组视图；**不是** L01～L16 通过标准，不能替代具名人审 |
-
-```powershell
-# 开课就绪检查（缺 course/lNN-start 时 course_ready=false，属诚实状态）
-python -X utf8 -m workbench.cli course-status
-python -X utf8 -m workbench.cli course-status --require-baselines
-
-# 单讲合同 / Spec
-python -X utf8 -m workbench.cli course-contract --lesson 8
-python -X utf8 -m workbench.cli course-spec --lesson 8
-```
-
-开课就绪：本地存在线性 `course/l01-start`…`course/l16-start` 且  
-`python -X utf8 -m workbench.cli course-status --require-baselines` 退出码 0、`course_ready: true` 时，才可声称支持逐讲红→绿复现。标签在侧分支 `course/baselines` 祖先链上发布（讲师侧，不进入学生跟跑树），不改写远端历史（推送需另行确认）。
-
-开课前建议再跑：
-
-```powershell
-python -X utf8 -m unittest tests.test_course_outline_alignment tests.test_progression tests.test_course_mainline tests.test_course_release tests.test_course_api -q
-python -X utf8 scripts/sync_outline_contracts.py   # 仅当改过大纲合同字段后
-```
-
-L04+ 起始红由讲师侧 `PROGRESSION.json` 门闩保证（路径 `course/baselines/`，gitignore，不给学生仓库），不是完整产品缺能力 git 史。
-
-可验收合同见 [`FDE_SPEC.md`](FDE_SPEC.md)。Agent 约束见 [`AGENTS.md`](AGENTS.md)。
-
-## 环境要求
-
-- Python 3.10+
-- Windows / macOS / Linux
-- 课程跟跑线只依赖 Python 标准库与 SQLite，**运行时不需要第三方包**
-- 仍建议使用虚拟环境：隔离解释器、固定工作区安装方式，避免污染系统 Python
-
-```bash
-# 创建并激活虚拟环境（需 Python 3.10+；Windows 可用 py -3.11 / py -3.12）
-py -3.11 -m venv .venv
-.\.venv\Scripts\Activate.ps1
-
-# macOS / Linux
-# python3 -m venv .venv && source .venv/bin/activate
-
-# 以可编辑模式安装本仓库（dependencies=[]，不会拉第三方业务包）
-python -m pip install -U pip
-python -m pip install -e .
-```
-
-激活后有两个独立产品入口：`flowerp` 启动 ERP；`harness-workbench` 启动研发自动化平台（**默认进入终端 REPL**）。`python -m workbench.cli …` 是工作台的批处理与课程命令入口。
-
-**若提示找不到 `harness-workbench` 或 `flowerp` 命令**，说明尚未执行 `pip install -e .`。可先直接用模块方式启动（见下文「工作台怎么启动」），或补装：
-
-```powershell
-python -m pip install -U pip
-python -m pip install -e .
-```
-
-## 工作台怎么启动
-
-Harness Workbench **终端优先**：主界面是 CLI 交互式 REPL（`harness>`），不是网页。  
-Web 面板是**可选**可视化辅助，需要另开命令启动。
-
-### 启动后只有 CLI、没有网页？——正常
-
-运行 `harness-workbench` 后出现类似输出，说明已经启动成功：
-
-```text
-(.venv) PS D:\work\CodexFDE> harness-workbench
-bootstrap: exists · PROJECT-FLOWERP · D:\work\CodexFDE
-Harness Workbench · 终端控制面。输入 help 查看命令，quit 退出。
-harness>
-```
-
-| 入口 | 命令 | 是什么 |
-| --- | --- | --- |
-| **主界面（默认）** | `harness-workbench` | 终端控制面 REPL（`harness>`） |
-| **可选网页** | `harness-workbench serve-web --bootstrap` | 浏览器 Agent 控制台 <http://127.0.0.1:8010/>（中文：会话对话 + 轨迹） |
-
-
-在 `harness>` 里可直接敲 `help`、`status`、`submit` 等，**不必开网页也能用完整工作台**。  
-若要网页：另开一个终端执行 `serve-web`（当前 `harness>` 会话可继续保留）。
-
-### 1. 安装（首次）
-
-```powershell
-cd d:\work\CodexFDE
-.\.venv\Scripts\Activate.ps1
-python -m pip install -e .
-```
-
-### 2. 主入口：交互终端
-
-```powershell
-# 已 pip install -e . 后
-harness-workbench
-
-# 未安装控制台脚本时（等价）
-python -X utf8 -m workbench.harness_cli
-```
-
-进入 `harness>` 后常用命令：
-
-```text
-harness> help
-harness> status
-harness> bootstrap
-harness> submit --req REQ-ERP-001 --scope flowerp,tests 验证库存预占规则
-harness> tasks
-harness> task TASK-XXXXXXXXXX
-harness> session SESSION-XXXXXXXXXXXX
-harness> tools
-harness> agent SESSION-XXXXXXXXXXXX
-harness> review TASK-XXX --decision approve --note "blocking 全绿，接受交付"
-harness> quit
-```
-
-### 3. 非交互常用命令
-
-```powershell
-harness-workbench bootstrap
-harness-workbench status
-harness-workbench composition --profile PROFILE-HEADLESS
-harness-workbench dump-config
-harness-workbench plugin-runtime --profile PROFILE-DEFAULT
-harness-workbench plugin-events --profile PROFILE-DEFAULT --limit 20
-harness-workbench run --request "验证库存预占" --requirement-id REQ-001
-harness-workbench --json mcp status
-```
-
-`run` 对标 dsh headless：最终助手答案打 **stdout**，状态元数据打 **stderr**，退出码 `0/1`。
-
-Profile 插件不再只是数据库里的启用列表：工作台会根据 `requires/provides` 建立活动服务，Provider 切换时逆序清理副作用并重载依赖方，失败则恢复旧组合。设计与边界见 [`插件生命周期与可逆副作用`](docs/architecture/插件生命周期与可逆副作用.md)。
-
-### 4. 可选：Web 面板（8010）
-
-需要浏览器界面时，**另开一个终端**执行（不要关掉现有的 `harness>`）：
-
-```powershell
-harness-workbench serve-web --bootstrap
-# 或
-python -X utf8 -m workbench.platform_server --bootstrap
-```
-
-浏览器打开 <http://127.0.0.1:8010/>。Web 为中文界面，使用官方 DeepSeek Harness 的 `--dsw-*` 色板与三栏布局（侧栏 · 对话/轨迹 · 详情）。这是课程 V0 的**可选**视觉驾驶舱，**不是**官方 Cordis/React 产品本体，也**不是**大纲 L01～L16 跟跑必做。OPC「超级个体 + Agent 员工」为可选挑战皮肤。若看到旧页面请 **Ctrl+F5** 强刷。
-
-## 两个产品，别混端口
-
-| 产品 | 作用 | 默认入口 | 运行数据 |
-| --- | --- | --- | --- |
-| **Harness Workbench** | 研发自动化平台：终端 REPL / Spec / Eval / 审核 | **终端** `harness-workbench`；可选 Web **8010** | `.harness-runtime/` |
-| **FlowERP** | 电商 ERP 业务系统：库存、订单、采购、Web | **8000** | `.runtime/` |
-
-两者可同时运行，数据库与进程物理隔离。
-
-## 5 分钟跑通
-
-```bash
-# 演示一条含审批、库存与履约约束的业务链路（临时目录，不污染正式库）
-python -X utf8 -m workbench.cli demo
-
-# 阻断级 Eval（唯一质量入口）
-python -X utf8 -m eval.harness --suite blocking
-
-# 初始化 Harness 平台并注册当前仓库为默认目标项目 PROJECT-FLOWERP
-python -X utf8 -m workbench.cli harness-bootstrap
-# 或：harness-workbench bootstrap
-
-# 启动独立 Harness 平台（终端主入口）
-# 方式 A：已 pip install -e . 时
-harness-workbench
-
-# 方式 B：未安装控制台脚本时（等价）
-python -X utf8 -m workbench.harness_cli
-
-# 可选：再开一个终端启动 Web 面板（8010）
-harness-workbench serve-web --bootstrap
-# 或：python -X utf8 -m workbench.platform_server --bootstrap
-
-# 另一个终端启动 FlowERP 业务系统
-python -X utf8 -m workbench.cli init --organization "FlowERP" --username admin
-python -X utf8 main.py --host 127.0.0.1 --port 8000
-```
-
-Harness 主控制面是终端 REPL（`harness>`）。使用 `bootstrap` / `--bootstrap` 或先跑 `harness-bootstrap` 时，FlowERP 仓库会自动注册为 `PROJECT-FLOWERP`。可选 Web 打开 <http://127.0.0.1:8010/>。FlowERP 打开 <http://127.0.0.1:8000/>。
-
-在 Harness Web（可选）中：右上角填写具名操作者 → 提交任务 → 等状态到 `review` → 点「查看」→ 填写审核理由 → 提交，任务才会进入 `completed`。终端侧用 `submit` / `review` 完成同一流程。
-
-```bash
-# 若 8000 已被占用，可换端口
-python -X utf8 main.py --host 127.0.0.1 --port 8001
-```
-
-`init` 会交互式设置管理员密码（至少 10 位）。也可跳过 `init`，在首次打开的初始化页创建组织和管理员。
-
-## 工作台怎么用
-
-独立平台通过项目注册表连接任意 Git 工作区；任务以 `PROJECT:PROJECT-ID` 稳定引用目标项目，Eval 和 Codex 均在注册的项目根目录执行。写 API 只监听本机地址，并要求 `X-Workbench-Actor` 与 `Idempotency-Key`。浏览器界面会自动提供这两项本地操作证据。
-
-### 一条命令提交交付任务
+课程命令用于逐讲跟跑；下面的通用任务命令用于把新的 ERP 需求提交给工作台：
 
 ```bash
 python -X utf8 -m workbench.cli task-submit \
-  --requirement-id REQ-ECOM-001 \
-  --business-ref CHANNEL_ORDER:EC-20260817-1001 \
-  --business-ref SKU:NOTEBOOK-AI \
+  --request "导出指定仓库的可用库存，不得泄露成本字段" \
+  --requirement-id REQ-INVENTORY-EXPORT-001 \
+  --business-ref FLOWERP-INVENTORY \
+  --actor student \
   --execute-code \
   --write-scope flowerp \
-  --write-scope tests \
-  --execution-timeout 900 \
-  --timeout 1200 \
-  --request "验证渠道订单缺货时不部分预占，补货后可恢复履约"
+  --write-scope tests
 ```
 
-任务会生成 `.runtime/specs/TASK-*.md`，依次进入 `spec_ready` → `executing` → `evaluating`，最后停在 `review` 或 `rework`。
+工作台会形成可追溯的任务、Spec、执行、Eval、事件和人工审核记录。写权限必须通过 `--write-scope` 明确收窄；没有 `--execute-code` 时，不应把任务描述误解为代码修改授权。
 
-- `--execute-code`：调用本机 Codex CLI 非交互模式；未传则只做 `verification_only`
-- `--write-scope`：必须显式给出的写入白名单；白名单外写入会把任务标为 `failed`
-- 即使 blocking 全绿，也必须经具名审核才能进入 `completed`
+默认代码执行器由环境变量 `FLOWERP_CODEX_COMMAND` 指定。执行器必须接收工作台生成的提示词并返回真实退出码；失败不能伪装成成功。
 
-若 Codex CLI 不在 PATH，设置 `FLOWERP_CODEX_COMMAND` 指向可执行文件。
-
-### 分阶段调试
+也可以分阶段操作：
 
 ```bash
 python -X utf8 -m workbench.cli task-create \
-  --requirement-id REQ-ECOM-001 \
-  --business-ref SKU:NOTEBOOK-AI \
-  --request "验证渠道订单缺货时不部分预占，补货后可恢复履约"
-python -X utf8 -m workbench.cli task-run TASK-ID
-python -X utf8 -m workbench.cli task-review TASK-ID \
-  --reviewer reviewer-a --decision approve --note "Spec、业务对象与 blocking 证据一致"
+  --request "修复取消订单未释放预占" \
+  --actor student \
+  --execute-code \
+  --write-scope flowerp \
+  --write-scope tests
+python -X utf8 -m workbench.cli task-run <TASK_ID> --actor student
+python -X utf8 -m workbench.cli task-show <TASK_ID>
+python -X utf8 -m workbench.cli task-review <TASK_ID> \
+  --reviewer reviewer \
+  --decision approve \
+  --note "阻断 Eval 与业务证据均已复核"
 ```
 
-### 有界修复与人工审核
+自动修复与显式编排仍复用同一质量入口：
 
 ```bash
 python -X utf8 -m agent.loop --max-rounds 3
 python -X utf8 -m agent.graph --max-rounds 3
-python -X utf8 -m agent.graph --require-human-review --state-file .runtime/delivery-review.json
-python -X utf8 -m agent.graph --state-file .runtime/delivery-review.json \
-  --review-decision approve --reviewer reviewer-a
 ```
 
-Loop 只在有失败时生成修复任务，并受轮数、时间、无进展与实测 Token 预算约束。Graph 显式表达评估、修复、复验与人工审核状态。
+Loop 必须有最大轮次和停止条件；Graph 必须让失败回退与人工审核可见。它们都不是“自动成功”按钮。
 
-## 启动与排错
+## 质量入口与业务红线
 
-### 启动后只有 `harness>`、没有网页界面？
-
-这是预期行为。`harness-workbench` 的主界面就是终端 CLI；网页需另开：
-
-```powershell
-harness-workbench serve-web --bootstrap
-```
-
-打开 <http://127.0.0.1:8010/> 后应看到面向 FlowERP 交付的工作台：顶部常驻进度条（需求→规格→改代码→验收→你确认）、待验收横幅、右侧进度详情。次要操作收在「更多」。若仍是旧页面，强制刷新（Ctrl+F5）。
-
-详见上文「工作台怎么启动」。
-
-### `harness-workbench` 无法识别
-
-PowerShell 报「无法将 harness-workbench 项识别为 cmdlet」时，通常是虚拟环境里还没 `pip install -e .`。
-
-**立即可用（无需安装脚本）——终端主入口：**
-
-```powershell
-python -X utf8 -m workbench.harness_cli
-```
-
-**可选 Web 面板：**
-
-```powershell
-python -X utf8 -m workbench.platform_server --bootstrap
-# 或
-python -X utf8 -m workbench.cli harness-serve --bootstrap
-```
-
-**想用短命令时：**
-
-```powershell
-python -m pip install -e .
-harness-workbench
-harness-workbench serve-web --bootstrap
-```
-
-### FlowERP 启动报 `WinError 10013` / 端口绑定失败
-
-多半是 **8000 已被占用**（常见是之前已有一个 `python main.py` 在跑），不是管理员权限问题。
-
-```powershell
-# 查看占用 8000 的进程
-netstat -ano | findstr ":8000"
-
-# 若确认是旧实例，结束进程（把 PID 换成 netstat 最后一列）
-Stop-Process -Id <PID> -Force
-
-# 或直接换端口
-python -X utf8 main.py --port 8001
-```
-
-若 <http://127.0.0.1:8000/> 已能打开 FlowERP 页面，说明服务已在运行，无需再启一次。
-
-### Harness 与 FlowERP 命令对照
-
-| 目标 | 推荐命令 | 入口 |
-| --- | --- | --- |
-| 研发工作台（终端） | `harness-workbench` 或 `python -X utf8 -m workbench.harness_cli` | `harness>` REPL |
-| 研发工作台（可选 Web） | `harness-workbench serve-web --bootstrap` | <http://127.0.0.1:8010/> Agent Console |
-| 电商 ERP | `python -X utf8 main.py` | <http://127.0.0.1:8000/> |
-
-## 质量入口
-
-提交前建议：
+### 标准验证命令
 
 ```bash
 python -X utf8 -m unittest discover -s tests -v
@@ -371,67 +234,181 @@ python -X utf8 -m agent.graph --max-rounds 3
 python -X utf8 -m workbench.feedback summary
 ```
 
-- `blocking`：业务不变量、安全边界、状态机与幂等；失败必须阻断
-- `observing`：课程资产与可维护性提示；失败记告警，不伪装成业务失败
-- Hook、CI、Loop、Graph **不复制**测试逻辑，只消费 Harness 退出码与报告
-- CI 入口：[`.github/workflows/eval.yml`](.github/workflows/eval.yml)
+修改业务规则时，至少补一个正常路径和一个失败路径；修改课程内容时，必须同时核对课程大纲、详细讲义和任务卡。
 
-不可破坏的业务规则：
+### 不可破坏的业务规则
 
-1. 可用库存不得为负；预占必须原子化
-2. 同一入库幂等键只能生效一次
-3. 订单只能按状态机迁移；取消必须释放预占
-4. 采购补货须人工审批后才能入库
-5. 任务、Eval 报告与反馈可追溯；失败不可伪装成成功
+1. 可用库存不得为负；预占必须原子化。
+2. 同一个入库幂等键只能生效一次。
+3. 订单状态只能按定义的状态机迁移；取消要释放预占。
+4. 采购补货必须经过人工审批才能入库。
+5. 任务、Eval 报告和反馈必须可追溯，失败不可伪装成成功。
 
-## FlowERP 现场能力（摘要）
+## FlowERP 当前能做什么
 
-FlowERP 是可运行的单组织、单写实例 ERP：页面操作进入真实 API、事务、SQLite、权限与审计，不是静态演示页。
+FlowERP 是课程的客户项目、实验场和验收场，不是冻结夹具。当前主线覆盖：
 
-覆盖商品/客户/供应商、销售与采购、库存、应收应付、复式总账、渠道订单中台与运营治理。典型闭环：
+- 主数据：组织、用户、角色、商品、仓库和基础权限。
+- 库存：入库幂等、批次、预占、释放、可用库存和库存查询。
+- 销售：订单创建、状态迁移、取消释放预占及相关审计。
+- 采购：采购单、人工审批、审批后入库。
+- 渠道与运营：渠道订单、回调租约、运行状态、备份和健康检查。
+- Web：无密钥的 ERP 操作界面；状态最终落到业务服务和 SQLite。
 
-```text
-销售：订单 → 信用检查 → 库存预占 → 发货 → 应收 → 收款核销
-采购：草稿 → 四眼审批 → 质检收货 → 三单匹配 → 应付 → 付款核销
-电商：店铺接入 → 幂等接单 → SKU 映射/拦截 → 审单 → 预占 → 回传任务原子领取 → 失败退避/死信
-```
+它是可教学、可验证的单体基线，不应被表述为已经满足所有生产级 ERP 场景。上线差距、容量、高可用和安全边界以 [上线差距与验收矩阵](docs/FlowERP-上线差距与验收矩阵.md) 和 [上线运行手册](docs/FlowERP-上线运行手册.md) 为准。
 
-适合中低并发单节点场景；不宣称多节点高可用或法定财税申报完备。更多产品边界见本地 `docs/`。
-
-### 常用运维命令
+<details>
+<summary>运营、备份与容器命令</summary>
 
 ```bash
-python -X utf8 -m workbench.cli mock-data --runtime-dir .runtime
-python -X utf8 -m workbench.cli verify-mock-data --runtime-dir .runtime
-python -X utf8 -m workbench.cli backup --label before-release
-python -X utf8 -m workbench.cli verify-backup .runtime/backups/<backup-file>
 python -X utf8 -m workbench.cli doctor
-python -X utf8 -m workbench.cli maintenance on --reason "schema upgrade"
+python -X utf8 -m workbench.cli runtime-status
+python -X utf8 -m workbench.cli backup
+python -X utf8 -m workbench.cli verify-backup <BACKUP_PATH>
 ```
 
-### Docker
+只启动 FlowERP 客户项目的容器：
 
 ```bash
-cp .env.example .env   # Windows: Copy-Item .env.example .env
-docker compose -f deploy/docker-compose.yml up --build -d
+docker compose -f deploy/docker-compose.yml up --build
 ```
 
-生产配置见 [`.env.example`](.env.example)。不要提交真实 `.env`、密码、Cookie 或数据库。
+就绪检查：<http://127.0.0.1:8000/api/v1/health/ready>。
 
-健康检查：
+</details>
+
+## 可选：完整 Harness 平台
+
+仓库还提供一个独立、可复用的完整 Harness 平台，用于研究多项目注册、Profile、Provider seam、Tool Registry、插件生命周期、Session 事件流和 Agent Loop。它是扩展挑战，**不能替代 8001 工作台、具名人审或 L01～L16 通过标准**。
+
+安装后可以直接使用脚本入口：
+
+```bash
+harness-workbench bootstrap
+harness-workbench repl
+harness-workbench serve-web
+```
+
+如果希望一个命令同时注册当前项目、启动 Harness Web，并联动启动 FlowERP：
+
+```bash
+harness-workbench serve-web --boot
+```
+
+`--boot` 是组合启动开关，等价于 `--bootstrap --with-flowerp`。Harness 退出时只会关闭由它启动的 FlowERP；如果目标端口已经运行着真实 FlowERP，则直接复用，不会终止该进程。端口冲突时可以显式指定：
+
+```bash
+harness-workbench serve-web --boot --port 8090 --flowerp-port 8080
+```
+
+也可以使用模块入口：
+
+```bash
+python -X utf8 -m workbench.harness_cli bootstrap
+python -X utf8 -m workbench.harness_cli repl
+python -X utf8 -m workbench.harness_cli serve-web
+```
+
+Web 默认地址为 <http://127.0.0.1:8010>，运行数据位于 `.harness-runtime/`。
+
+<details>
+<summary>常用 Harness 终端命令</summary>
 
 ```text
-GET /api/v1/health/live
-GET /api/v1/health/ready
-GET /api/v1/metrics
+status
+projects
+profiles
+tools
+plugins
+composition
+dump-config
+tasks
+sessions
+help
+exit
 ```
 
-## 课程与建设口径
+查看全部非交互命令：
 
-16 讲围绕工作台能力逐讲推进，每讲对应 FlowERP 暴露的工程问题、工作台增量，以及学生可迁移的证据。大纲合同与详细讲义在本地 `docs/`、`course/`。
+```bash
+harness-workbench --help
+harness-workbench plugin-runtime
+harness-workbench plugin-events
+```
 
-课程建设按国家级一流本科课程（金课）口径持续重构；课程目标、评价计算、两周期改进和证据边界见 [`国家级一流本科课程建设方案`](docs/courses/国家级一流本科课程建设方案.md)，当前申报缺口与责任边界见 [`申报级质量门`](docs/courses/国家级一流本科课程申报级质量门.md)。正式申报资格与当批次要求须由学校依据教育部最新文件确认。仓库实现与文案不能替代学生目标达成，也不能伪造申报资格或教学成效。
+</details>
 
-## 安全
+可选完整 Harness 用来对照 Session/Profile/Plugin、thread、event stream、approval 与 interrupt；边界见 [个人 AI 研发工作台](docs/reference/个人AI研发工作台.md)。不得声称已等价于其他产品或已接入官方 app-server。
 
-不要在公开 Issue 中粘贴密码、访问令牌、真实客户数据或数据库文件。保留复现步骤与请求编号，通过维护者认可的私密渠道报告。
+## 常见问题
+
+### `flowerp-workbench` 或 `harness-workbench` 找不到
+
+确认已经激活 `.venv` 并执行：
+
+```bash
+python -m pip install -e .
+```
+
+所有关键能力也都有不依赖脚本入口的模块命令，例如 `python -X utf8 -m workbench.cli --help`。
+
+### 打开的页面和文档描述不一致
+
+先确认端口：8001 是课程工作台，8000 是 FlowERP，8010 是可选 Harness。然后强制刷新浏览器，避免旧静态资源缓存。
+
+### 启动时报 `WinError 10013` 或“端口已被占用”
+
+先检查目标端口是否已有监听程序：
+
+```powershell
+Get-NetTCPConnection -LocalPort 8000 -State Listen -ErrorAction SilentlyContinue
+```
+
+停止确认不再需要的进程，或者显式换一个空闲端口：
+
+```powershell
+python -X utf8 -m workbench.cli serve --port 8080
+python -X utf8 -m workbench.cli serve-workbench --port 8081
+python -X utf8 -m workbench.harness_cli serve-web --port 8090
+```
+
+服务不会自动抢占或终止已有进程。Windows 下监听采用独占绑定，避免两个服务悄悄共享同一个端口。
+
+### 两个界面看到的数据不一致
+
+这是职责分离，不一定是错误：
+
+- `.runtime/workbench.db` 保存工作台任务与交付证据。
+- `.runtime/flowerp.db` 保存 FlowERP 业务状态。
+- `.harness-runtime/` 保存可选平台状态。
+
+不要复制、改名或混用这些数据库来绕过初始化和验收。
+
+### `course-status` 通过，但本讲没有出现红灯
+
+`course_ready: true` 只证明合同与标签存在。请通过课程命令在隔离工作区验证“执行前红、范围内 Diff、执行后绿”，并检查当前讲的 `baseline_semantics`。
+
+## 进一步阅读
+
+| 想了解什么 | 文档 |
+|---|---|
+| 对外课表与 16 讲主题 | [课表｜Codex AI 工程交付行动营](docs/课表｜Codex AI 工程交付行动营.md) |
+| 16 讲唯一课程合同 | [课程大纲](docs/课程大纲-Codex-FDE行动营-个人研发自动化工作台.md) |
+| 学生学习路线与逐页课件安排 | [课程蓝图](docs/courses/课程蓝图.md) |
+| 个人工作台的产品边界 | [个人 AI 研发工作台](docs/reference/个人AI研发工作台.md) |
+| FlowERP 领域口径 | [领域模型与业务不变量](docs/reference/FlowERP领域模型与业务不变量.md) |
+| API、Web 与冷启动 | [接口与运行边界](docs/reference/FlowERP接口与运行边界.md) |
+| 部署回滚操作 | [回滚手册](deploy/ROLLBACK.md) |
+
+## 课程建设与证据诚信
+
+本仓库按国家级一流本科课程的建设逻辑持续重构，强调学生中心、产出导向、形成性评价和持续改进；这是一项**建设目标**，不等于已经具备申报资格或已经通过认定。
+
+人才培养方案、课程编码、学分学时、真实教学周期、学生学习记录、同行评价、团队资格和学校审核等外部证据缺失时，只能标记为“待建设”或“待校方确认”。参考仓库测试通过、模拟数据、截图和 Agent 自述都不能替代真实教学达成证据。
+
+## 安全提示
+
+- 不要提交 `.env`、密钥、运行数据库、备份、报告或生成产物。
+- Web 页面不得包含服务端凭据；生产部署必须替换示例密码并按运行手册配置认证、来源限制和备份。
+- 不要删除失败证据；修复后保留可复现命令、修订前后版本和审核记录。
+- 对外演示或申报前，必须移除学生个人敏感信息和未经授权的作品。

@@ -21,10 +21,15 @@ jobs:
         run: python -X utf8 -m unittest discover -s tests -v
       - name: Unified blocking gate
         run: python -X utf8 -m eval.harness --suite blocking
+      - name: Bind Evidence Envelope to this run
+        if: always()
+        run: python -X utf8 -m workbench.ci_evidence --report .runtime/reports/harness-blocking.json --output .runtime/reports/ci-evidence.json
       - name: Upload machine-readable evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: flowerp-harness-report
-          path: .runtime/reports/harness-blocking.json
+          path: |
+            .runtime/reports/harness-blocking.json
+            .runtime/reports/ci-evidence.json
           if-no-files-found: error

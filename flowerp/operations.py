@@ -198,7 +198,13 @@ class HealthService:
         self.require_recent_backup = require_recent_backup
 
     def live(self) -> dict:
-        return {"status": "ok", "service": "flowerp", "time": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+        # An opaque directory identity lets the local launcher avoid reusing
+        # another project's listener without disclosing its filesystem path.
+        import hashlib
+        import os
+        identity = hashlib.sha256(os.path.normcase(str(self.runtime_dir.resolve())).encode()).hexdigest()
+        return {"status": "ok", "service": "flowerp", "runtime_id": identity,
+                "time": datetime.now(timezone.utc).isoformat(timespec="seconds")}
 
     def ready(self) -> tuple[bool, dict]:
         checks: dict[str, object] = {}

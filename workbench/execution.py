@@ -4,6 +4,7 @@ import difflib
 import hashlib
 import json
 import os
+import queue
 import shutil
 import subprocess
 import threading
@@ -12,6 +13,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Callable, Iterator
+from .process_guard import spawn as spawn_owned_process
 
 
 ProcessRunner = Callable[..., subprocess.CompletedProcess]
@@ -35,7 +37,7 @@ def normalize_write_scope(values: list[str] | tuple[str, ...] | None) -> list[st
     """Return safe, workspace-relative paths suitable for a task allowlist."""
     normalized: list[str] = []
     for raw in values or []:
-        value = str(raw).strip().replace("\\", "/").strip("/")
+        value = str(raw).strip().replace("\\", "/")
         if not value:
             continue
         path = PurePosixPath(value)
@@ -173,9 +175,9 @@ class CodexExecutionRunner:
         started = time.monotonic()
         timed_out = False
         launch_error = ""
-        if on_codex_line is not None and self.process_runner is subprocess.run:
+        if self.process_runner is subprocess.run:
             completed = self._run_codex_streaming(
-                command, prompt, timeout, on_codex_line, started,
+                command, prompt, timeout, on_codex_line or (lambda line: None), started,
             )
             timed_out = completed.returncode == 124
             if timed_out:
@@ -248,42 +250,69 @@ class CodexExecutionRunner:
     ) -> subprocess.CompletedProcess:
         stdout_parts: list[str] = []
         stderr_parts: list[str] = []
+        lines = queue.Queue()
         try:
-            process = subprocess.Popen(
-                command,
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                cwd=self.workspace_root,
-            )
+            process, owner, prefix = spawn_owned_process(command, self.workspace_root)
         except OSError as exc:
             return subprocess.CompletedProcess(command, 127, stdout="", stderr=str(exc))
-        assert process.stdin is not None
-        process.stdin.write(prompt)
-        process.stdin.close()
+
+        def drain(stream, label):
+            try:
+                for line in stream:
+                    lines.put((label, line))
+            finally:
+                stream.close()
+                lines.put((label, None))
+
+        def feed():
+            try:
+                process.stdin.write(prefix + prompt)
+                process.stdin.close()
+            except (BrokenPipeError, OSError):
+                pass
+
+        readers = [threading.Thread(target=drain, args=(process.stdout, "out"), daemon=True),
+                   threading.Thread(target=drain, args=(process.stderr, "err"), daemon=True)]
+        writer = threading.Thread(target=feed, daemon=True)
+        for thread in readers:
+            thread.start()
+        writer.start()
         deadline = started + timeout
-        while True:
-            if process.stdout and not process.stdout.closed:
-                line = process.stdout.readline()
-                if line:
+        ended = set()
+        timed_out = False
+        try:
+            while len(ended) < 2 or process.poll() is None:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    timed_out = True
+                    break
+                try:
+                    channel, line = lines.get(timeout=min(.05, remaining))
+                except queue.Empty:
+                    continue
+                if line is None:
+                    ended.add(channel)
+                elif channel == "out":
                     stdout_parts.append(line)
                     on_codex_line(line.rstrip("\n"))
-                    continue
-            if process.poll() is not None:
-                break
-            if time.monotonic() >= deadline:
+                else:
+                    stderr_parts.append(line)
+        finally:
+            if owner:
+                owner.close()
+            if process.poll() is None:
                 process.kill()
-                return subprocess.CompletedProcess(
-                    command, 124, stdout="".join(stdout_parts), stderr="".join(stderr_parts),
-                )
-            time.sleep(0.05)
-        if process.stdout:
-            stdout_parts.append(process.stdout.read() or "")
-        if process.stderr:
-            stderr_parts.append(process.stderr.read() or "")
+            process.wait(timeout=5)
+            for thread in [*readers, writer]:
+                thread.join(timeout=1)
+            # Preserve output already drained when timeout or a callback interrupted us.
+            while not lines.empty():
+                channel, line = lines.get_nowait()
+                if line is not None:
+                    (stdout_parts if channel == "out" else stderr_parts).append(line)
         return subprocess.CompletedProcess(
-            command, int(process.returncode or 0), stdout="".join(stdout_parts), stderr="".join(stderr_parts),
+            command, 124 if timed_out else int(process.returncode or 0),
+            stdout="".join(stdout_parts), stderr="".join(stderr_parts),
         )
 
     def _snapshot(self) -> dict[str, _FileState]:
@@ -420,8 +449,10 @@ class CodexExecutionRunner:
             "你是 FlowERP 研发交付执行器。读取仓库 AGENTS.md 并完成下面的任务。\n"
             "必须先理解 Spec，再做最小代码修改，再运行与改动相关的测试。\n"
             f"只允许修改这些相对路径：{', '.join(scopes)}。不得修改其他路径。\n"
-            "不得写入 .runtime、.tmp、.git、.codex、.env、数据库、密钥或凭据文件；"
+            "不得直接写入 .runtime、.tmp、.git、.codex、.env、现有运行数据库、密钥或凭据文件；"
             "不得批准业务单据，不得删除或降低 Eval。\n"
+            "可以运行测试，在系统 tempfile 目录中创建独立的测试数据库；不得连接或修改现有业务数据库。"
+            "真实任务与审核证据由外层工作台记录，不要自行编造或写入运行账本。\n"
             "如果需求无法在写入范围内安全完成，停止修改并在 risks 中说明。\n"
             "最终必须按给定 JSON Schema 返回摘要、实际测试、剩余风险和下一步。\n\n"
             "任务上下文：\n" + json.dumps(payload, ensure_ascii=False, indent=2)

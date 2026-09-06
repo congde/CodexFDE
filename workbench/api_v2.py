@@ -133,6 +133,10 @@ class APIRouter:
                     response = self._dispatch(method.upper(), normalized_path, query, headers, body, remote_addr)
                 except AuthenticationError as exc:
                     response = self._error(HTTPStatus.UNAUTHORIZED, "authentication_failed", str(exc))
+                    if (normalized_path != '/api/v1/auth/login'
+                            and not headers.get('authorization', '').lower().startswith('bearer ')
+                            and self._cookies(headers.get('cookie', '')).get('flowerp_session')):
+                        response.headers['Set-Cookie'] = 'flowerp_session=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0'
                 except PermissionDenied as exc:
                     response = self._error(HTTPStatus.FORBIDDEN, "permission_denied", str(exc))
                 except NotFound as exc:

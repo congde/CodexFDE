@@ -106,6 +106,37 @@ class InitiativeStoreTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "版本已变化"):
                 store.revise(revised["id"], {"goal": "旧版本覆盖"}, "owner-a", created["version"])
 
+    def test_lossy_question_mark_payload_is_rejected_before_persistence(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            store = InitiativeStore(Path(temporary) / "platform.db")
+            with self.assertRaisesRegex(ValueError, "疑似编码损坏"):
+                store.create(complete_payload(title="FlowERP ???????????"), "owner-a")
+            self.assertEqual([], store.list())
+
+    def test_corrupted_history_is_superseded_without_deleting_original_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            store = InitiativeStore(Path(temporary) / "platform.db")
+            corrupted = store.create(complete_payload(), "owner-a")
+            with store.connect() as conn:
+                conn.execute(
+                    "UPDATE initiatives SET title=?,raw_signal=? WHERE id=?",
+                    ("FlowERP ???????????", "????????????????", corrupted["id"]),
+                )
+            replacement = store.create(
+                complete_payload(title="FlowERP 财务应付账龄优化"), "owner-a",
+            )
+
+            superseded = store.supersede_corrupted(
+                corrupted["id"], replacement["id"], "encoding-reviewer",
+                "后续 UTF-8 重建记录已复核",
+            )
+
+            self.assertEqual("superseded", superseded["status"])
+            self.assertEqual(replacement["id"], superseded["superseded_by"])
+            self.assertEqual("FlowERP ???????????", superseded["title"])
+            self.assertEqual("initiative/encoding-superseded", superseded["events"][-1]["kind"])
+            self.assertTrue(superseded["events"][-1]["payload"]["original_content_preserved"])
+
 
 class InitiativePlatformAPITests(unittest.TestCase):
     def _repo(self, root: Path) -> Path:

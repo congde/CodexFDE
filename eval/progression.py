@@ -1,6 +1,6 @@
 """Course baseline progression gate.
 
-When ``course/baselines/PROGRESSION.json`` is absent, every gated capability is
+When ``docs/courses/labs/baselines/PROGRESSION.json`` is absent, every gated capability is
 treated as delivered (end-state / follow-along HEAD).
 
 When the file is present, Eval cases call ``require_capability`` so lesson-start
@@ -13,7 +13,8 @@ import json
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-PROGRESSION_PATH = REPO_ROOT / "course" / "baselines" / "PROGRESSION.json"
+PROGRESSION_RELATIVE = Path("docs/courses/labs/baselines/PROGRESSION.json")
+PROGRESSION_PATH = REPO_ROOT / PROGRESSION_RELATIVE
 
 # Capability unlocked when the listed lesson's product increment is complete.
 UNLOCKS_AFTER_LESSON: dict[int, tuple[str, ...]] = {
@@ -68,7 +69,7 @@ def progression_payload(lesson_number: int) -> dict:
 
 def load_enabled_capabilities(root: Path | None = None) -> set[str] | None:
     """Return enabled set, or None when progression file is absent (all delivered)."""
-    path = (root or REPO_ROOT) / "course" / "baselines" / "PROGRESSION.json"
+    path = (root or REPO_ROOT) / PROGRESSION_RELATIVE
     if not path.is_file():
         return None
     data = json.loads(path.read_text(encoding="utf-8"))

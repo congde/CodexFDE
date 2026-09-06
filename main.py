@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import sys
 
+from workbench.http_bind import ServerBindError, report_bind_error
 from workbench.server import serve
 
 
@@ -18,7 +19,10 @@ def main(argv: list[str] | None = None) -> int:
     url = f"http://{args.host}:{args.port}/"
     print(f"FlowERP 启动中：后端 API=/api/v1  前端 Web={url}", flush=True)
     print("按 Ctrl+C 停止。", flush=True)
-    serve(args.host, args.port, args.runtime_dir)
+    try:
+        serve(args.host, args.port, args.runtime_dir)
+    except ServerBindError as error:
+        return report_bind_error(error)
     return 0
 
 

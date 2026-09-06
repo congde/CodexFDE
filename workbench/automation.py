@@ -104,8 +104,8 @@ class DeliveryAutomation:
             if any(pending_id == task_id for pending_id, _ in self._pending):
                 return self.store.get(task_id)
             task = self.store.get(task_id)
-            if task["status"] not in {"queued", "rework"}:
-                raise ValueError("自动流水线只允许 queued 或可安全重放的 rework 任务启动")
+            if task["status"] not in {"queued", "spec_ready", "rework"}:
+                raise ValueError("自动流水线只允许 queued、spec_ready 或可安全重放的 rework 任务启动")
             if len(self._threads) >= self.max_workers:
                 self._pending.append((task_id, actor))
                 self.store.append_event(

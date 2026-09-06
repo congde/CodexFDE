@@ -247,6 +247,11 @@ class ImportExportService:
         }
         if export_type not in queries: raise ValidationError(f"不支持的导出类型：{export_type}")
         rows=self.store.rows(*queries[export_type])
-        if not rows:return ""
-        output=io.StringIO(newline="");writer=csv.DictWriter(output,fieldnames=list(rows[0]));writer.writeheader();writer.writerows(rows)
+        if export_type == "inventory":
+            fieldnames = ["sku", "name", "site", "location", "lot_id", "on_hand", "reserved", "available"]
+        elif rows:
+            fieldnames = list(rows[0])
+        else:
+            return ""
+        output=io.StringIO(newline="");writer=csv.DictWriter(output,fieldnames=fieldnames);writer.writeheader();writer.writerows(rows)
         return "\ufeff"+output.getvalue()

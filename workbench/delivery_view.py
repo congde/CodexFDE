@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Iterable
 
+from .cockpit import classify_lane, spec_title
 from .delivery_pipeline import pipeline_payload, stage_for_status
 from .evolution import EvolutionStore
 from .feedback import summary as feedback_summary
@@ -25,7 +26,7 @@ _STATUS_CONTROL = {
     "rework": ("agent:coder", "返工责任人", "根据保留的阻断证据进行有界修复"),
     "completed": ("human:reviewer", "交付责任人", "采集真实反馈并观察后续业务结果"),
     "failed": ("human:operator", "人工处置人", "核对不可重试错误并决定恢复或停止"),
-    "dead_letter": ("human:operator", "人工处置人", "检查死信证据并创建范围受控的新任务"),
+    "dead_letter": ("human:operator", "人工处置人", "先核对中断原因和实际改动，确认后再创建新任务；原记录会保留"),
 }
 
 
@@ -71,7 +72,7 @@ def _status_view(task: dict) -> dict:
         "code": code or "unknown",
         "known": known,
         "stage_id": payload.get("stage_id") if known else "unknown",
-        "label": payload.get("label") if known else "未知状态",
+        "label": "已停止，待核对" if code == "dead_letter" else payload.get("label") if known else "未知状态",
         "title": payload.get("title") if known else f"未知交付状态：{code or '空值'}",
         "summary": payload.get("summary") if known else "状态不在交付合同中，禁止显示为成功。",
         "owner": {"id": owner_id, "label": owner_label},
@@ -138,7 +139,7 @@ def _execution_view(task: dict, *, include_detail: bool) -> dict:
 def _allowed_actions(task: dict) -> list[str]:
     status = str(task.get("status") or "")
     actions = ["view_evidence", "add_feedback"]
-    if status == "rework" or (status == "queued" and task.get("automation_mode") != "automatic"):
+    if status in {"queued", "spec_ready", "rework"}:
         actions.append("run")
     if status == "review":
         actions.extend(("approve", "reject"))
@@ -215,9 +216,13 @@ def build_delivery_view(
             "write_scope": list(task.get("write_scope") or []),
             "execution_timeout_seconds": task.get("execution_timeout_seconds"),
         },
+        "lane": classify_lane(task),
         "spec": {
             "available": isinstance(task.get("spec"), dict) and bool(task.get("spec")),
             "path": task.get("spec_path") or "",
+            "title": spec_title(task.get("spec")) or str(task.get("request") or "")[:120],
+            "goal": str((task.get("spec") or {}).get("goal") or "") if include_detail and isinstance(task.get("spec"), dict) else "",
+            "acceptance": str((task.get("spec") or {}).get("acceptance") or "") if include_detail and isinstance(task.get("spec"), dict) else "",
             "content": task.get("spec") if include_detail else None,
         },
         "execution": execution,

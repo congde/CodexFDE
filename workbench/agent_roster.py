@@ -39,25 +39,25 @@ class AgentEmployee:
 DEFAULT_EMPLOYEES: tuple[AgentEmployee, ...] = (
     AgentEmployee(
         id="agent:spec",
-        display_name="规格员",
-        title="Spec",
-        duty="澄清需求边界并生成任务 Spec",
+        display_name="产品",
+        title="Product",
+        duty="澄清业务信号、兼 PM 范围与验收点，并生成任务 Spec",
         stages=("request", "spec"),
         tools=("spec.read",),
     ),
     AgentEmployee(
         id="agent:coder",
-        display_name="工程师",
-        title="Coder",
+        display_name="开发",
+        title="Dev",
         duty="在 write_scope 内受控改代码并跑 Eval",
         stages=("code", "eval"),
         tools=("codex.exec", "eval.blocking", "workspace.read", "workspace.shell"),
     ),
     AgentEmployee(
         id="agent:reviewer",
-        display_name="质检员",
-        title="Reviewer",
-        duty="对照 Eval 与业务规则挑刺；不可代替老板终审",
+        display_name="测试",
+        title="Test",
+        duty="对照 Eval 与业务规则挑刺；不可代替老板/Leader 终审",
         stages=("human",),
         tools=(),
     ),
@@ -110,7 +110,7 @@ def assert_boss_actor(actor: str) -> str:
 
 def assert_coder_reviewer_sod(coder_id: str, reviewer_id: str) -> None:
     if coder_id == reviewer_id:
-        raise ValueError("职责分离：工程师与质检员不能是同一员工")
+        raise ValueError("职责分离：开发与测试不能是同一员工")
 
 
 def duty_actor_for_stage(stage_id: str | None, *, overrides: dict[str, str] | None = None) -> str:
@@ -161,7 +161,8 @@ def format_roster_for_llm(
     if nxt:
         emp = _BY_ID.get(nxt)
         lines.append(f"next_duty: {nxt} ({(emp.display_name if emp else nxt)})")
-    lines.append("规则: 质检员只能挑刺，不能 approve；终审必须由老板（非 agent:*）完成。")
+    lines.append("规则: 测试只能挑刺，不能 approve；终审必须由老板/Leader（非 agent:*）完成。")
+    lines.append("角色对照: 需求=业务，规格=产品（兼 PM），改代码=开发，验收=测试，终审=Leader。")
     lines.append("职责分离: agent:coder 与 agent:reviewer 固定不同。")
     return "\n".join(lines)
 
@@ -198,7 +199,7 @@ def build_agent_critique(
     elif status == "review":
         notes.append("自动化已停在 review；建议老板对照 Diff/Eval 具名终审。")
     else:
-        notes.append("当前未到老板终审点；仅记录质检意见。")
+        notes.append("当前未到老板终审点；仅记录测试意见。")
     return {
         "schema": "harness.agent.critique/v1",
         "reviewer_id": reviewer_id,

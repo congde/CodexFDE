@@ -14,6 +14,14 @@ from workbench.server import App, make_handler, _structured_log
 
 
 class HTTPAPITests(unittest.TestCase):
+    def test_stale_cookie_is_expired_without_authentication_bypass(self):
+        from dataclasses import replace
+        self.app.api.settings = replace(self.app.api.settings, auth_required=True)
+        status, _, headers = self.request('GET', '/api/v1/auth/me', headers={'Cookie': 'flowerp_session=expired'})
+        self.assertEqual(401, status)
+        self.assertIn('Max-Age=0', headers['set-cookie'])
+        self.assertEqual(401, self.request('GET', '/api/v1/auth/me')[0])
+
     def persist_report(self, task_id: str, report: dict) -> dict:
         report_dir = Path(self.app.api.tasks.path).parent / "reports"
         report_dir.mkdir(parents=True, exist_ok=True)
@@ -104,8 +112,10 @@ class HTTPAPITests(unittest.TestCase):
         self.assertIn('/api/v1/finance/periods/reopen', script)
         self.assertIn('/api/v1/reports/ap-aging', script)
         self.assertIn('应收 / 应付账龄', body)
-        self.assertIn('toast("系统初始化完成，已进入工作台")', script)
-        self.assertIn('toast("系统已初始化，已为您进入工作台")', script)
+        self.assertIn('toast("系统初始化完成，已进入客户项目 FlowERP")', script)
+        self.assertIn('toast("系统已初始化，已为您进入客户项目 FlowERP")', script)
+        self.assertIn("客户项目", body)
+        self.assertIn("http://127.0.0.1:8001", body)
         self.assertIn('>查看应收票</button>', script)
         self.assertIn('/api/v1/dashboard/trends?months=12', script)
         self.assertIn('id="dashboard-trend-chart"', body)

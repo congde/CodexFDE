@@ -1,5 +1,6 @@
 services:
   flowerp:
+    image: flowerp-course:local
     build:
       context: ..
       dockerfile: deploy/Dockerfile
@@ -39,5 +40,54 @@ services:
         max-size: "10m"
         max-file: "5"
 
+  workbench:
+    image: flowerp-course:local
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    command:
+      - python
+      - -X
+      - utf8
+      - -m
+      - workbench.cli
+      - serve-workbench
+      - --host
+      - 0.0.0.0
+      - --port
+      - "${WORKBENCH_PORT:-8001}"
+      - --runtime-dir
+      - /app/.runtime
+      - --erp-url
+      - "http://127.0.0.1:${FLOWERP_PORT:-8000}"
+    ports:
+      - "127.0.0.1:${WORKBENCH_PORT:-8001}:${WORKBENCH_PORT:-8001}"
+    volumes:
+      - workbench-runtime:/app/.runtime
+    healthcheck:
+      test: ["CMD", "python", "-c", "import json,urllib.request; data=json.load(urllib.request.urlopen('http://127.0.0.1:${WORKBENCH_PORT:-8001}/api/health',timeout=2)); assert data.get('surface')=='workbench' and data.get('status')=='ok'"]
+      interval: 20s
+      timeout: 3s
+      start_period: 10s
+      retries: 3
+    read_only: true
+    init: true
+    pids_limit: 256
+    tmpfs:
+      - /tmp
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    stop_grace_period: 30s
+    stop_signal: SIGTERM
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
 volumes:
   flowerp-runtime:
+  workbench-runtime:
