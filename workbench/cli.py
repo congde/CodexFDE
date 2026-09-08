@@ -4,6 +4,7 @@ import argparse
 import getpass
 import json
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -378,7 +379,14 @@ def main() -> int:
             result = {"items": task_store.list(args.limit)}
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0 if result.get("status") not in {"failed", "rework", "dead_letter"} else 1
-    result = demo(args.runtime_dir) if args.command == "demo" else load_spec(args.path).as_dict()
+    if args.command == "spec":
+        try:
+            result = load_spec(args.path).as_dict()
+        except (ValueError, OSError) as exc:
+            print(f"Spec 校验失败：{exc}", file=sys.stderr)
+            return 1
+    else:
+        result = demo(args.runtime_dir)
     print(json.dumps(result, ensure_ascii=False, indent=2)); return 0
 
 
