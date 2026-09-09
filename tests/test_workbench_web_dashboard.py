@@ -18,6 +18,7 @@ class WorkbenchWebDashboardTests(unittest.TestCase):
             "本讲合同",
             "当前任务",
             "证据链",
+            "Harness 外壳有没有闸",
             "上一次工作台升级",
             "8000",
             "8010",
@@ -32,6 +33,8 @@ class WorkbenchWebDashboardTests(unittest.TestCase):
         self.assertIn("/api/cockpit/upgrade", script)
         self.assertIn("/verify", script)
         self.assertIn("/review", script)
+        self.assertIn("renderControlSurface", script)
+        self.assertIn("control_surface", script)
         self.assertIn("提交并复验", html)
         self.assertIn("批准完成", html)
         self.assertNotIn("JSON.stringify(detail", script)

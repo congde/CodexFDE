@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from typing import Iterable
 
 from .cockpit import classify_lane, spec_title
+from .control_surface import build_control_surface
 from .delivery_pipeline import pipeline_payload, stage_for_status
 from .evolution import EvolutionStore
 from .feedback import summary as feedback_summary
@@ -196,6 +197,23 @@ def build_delivery_view(
         issues.append("review_without_green_blocking_eval")
     if execution["out_of_scope_files"]:
         issues.append("out_of_scope_writes")
+    control_surface = build_control_surface(task)
+    for issue in control_surface["issues"]:
+        if issue not in issues and issue in {
+            "loop_event_missing",
+            "loop_bounds_invalid",
+            "tool_permissions_missing",
+            "codex_write_permission_not_recorded",
+            "parsed_spec_missing",
+            "request_missing",
+            "spec_path_missing",
+            "write_scope_missing",
+            "execution_timeout_missing",
+            "skip_eval_not_forbidden",
+            "named_review_missing",
+            "blocking_report_missing",
+        }:
+            issues.append(issue)
 
     task_projection = dict(task)
     if not include_detail:
@@ -227,6 +245,7 @@ def build_delivery_view(
         },
         "execution": execution,
         "eval": eval_view,
+        "control_surface": control_surface,
         "review": review,
         "feedback": {
             "total": len(feedback),

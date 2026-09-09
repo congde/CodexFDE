@@ -141,11 +141,12 @@ class InitiativeWorkflow:
         version = len(versions) + 1
         versions.append({'version': version, 'at': time.time(), 'status': 'draft',
             'prd': {'business_problem': item['raw_signal'], 'goal': proposal['goal'],
+                    'users': proposal.get('users', []), 'scope': proposal.get('scope', []),
                     'acceptance': proposal['acceptance'], 'non_goals': proposal['non_goals'],
                     'questions': proposal['questions'], 'success_metric': item.get('success_metric') or '待业务负责人在讨论中确定'},
             'technical_plan': {'findings': proposal['findings'], 'sources': proposal['sources'],
                                'write_scope': proposal['write_scope'], 'steps': proposal['steps'],
-                               'test_plan': proposal['acceptance'], 'eval_command': (self.project(item['id']) or {}).get('eval_command', [])}})
+                               'test_plan': proposal.get('test_plan', []), 'eval_command': (self.project(item['id']) or {}).get('eval_command', [])}})
         data['document_version'] = version
 
     def record_delivery(self, item_id, actor, revision, kind, fields):

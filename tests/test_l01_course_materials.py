@@ -19,7 +19,7 @@ spec.loader.exec_module(capture_module)
 
 class L01CourseMaterialsTests(unittest.TestCase):
     def test_all_l01_materials_are_colocated(self):
-        for name in ("README.md", "阅读讲义.md", "实践操作手册.md", "SUBMISSION.md", "行动卡.md", "教师备课说明.md", "prompts", "slides", "assets", "tools"):
+        for name in ("阅读讲义.md", "实践操作手册.md", "WORKBENCH_SPEC.md", "prompts", "slides", "assets", "tools"):
             self.assertTrue((LESSON / name).exists(), name)
         self.assertFalse((ROOT / "docs/courses/labs/L01").exists())
         self.assertFalse(list((ROOT / "docs/courses/tasks").glob("L01-*.md")))

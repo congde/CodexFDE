@@ -128,6 +128,7 @@ def main() -> int:
     course_submit_cmd.add_argument("--execution-timeout", type=int, default=900)
     course_submit_cmd.add_argument("--eval-case", action="append", default=[], help="L15/L16 本次需求新增 Eval，可重复")
     course_submit_cmd.add_argument("--session-baseline-ref", help="含本次红灯 Eval、但尚未实现需求的 Git ref/提交")
+    course_submit_cmd.add_argument('--allowed-file', action='append', help='收窄本次写入范围到指定相对文件，可重复；不得超出课程合同')
     course_submit_cmd.add_argument("--bootstrap-task-id", help="L04 已由非执行者接受的 WB-L04-BOOTSTRAP 任务编号")
     course_submit_cmd.add_argument('--requirement-spec', type=Path, help='L04 使用 L03 确认的 Spec；L15/L16 使用本次六段式需求 Markdown 文件')
     baseline_audit_cmd = sub.add_parser("course-baseline-audit", help="审计某提交能否作为逐讲起始基线")
@@ -251,6 +252,7 @@ def main() -> int:
                 lesson_number=args.lesson, actor=args.actor, execute_code=args.execute_code,
                 execution_timeout=args.execution_timeout, eval_cases=tuple(args.eval_case),
                 session_baseline_ref=args.session_baseline_ref,
+                write_scope=tuple(args.allowed_file) if args.allowed_file is not None else None,
                 bootstrap_task_id=args.bootstrap_task_id,
                 requirement_spec_text=args.requirement_spec.read_text(encoding='utf-8') if args.requirement_spec else None,
             )

@@ -24,6 +24,7 @@ def submit_course(*, repository_root: str | Path, runtime_dir: str | Path,
                   expected_baseline_commit: str | None = None,
                   bootstrap_task_id: str | None = None,
                   requirement_spec_text: str | None = None,
+                  write_scope: tuple[str, ...] | None = None,
                   on_task_created=None) -> dict:
     if type(execute_code) is not bool:
         raise ValueError("execute_code 必须是明确的布尔授权")
@@ -57,6 +58,7 @@ def submit_course(*, repository_root: str | Path, runtime_dir: str | Path,
         execution_timeout_seconds=execution_timeout,
         additional_eval_cases=dynamic_cases,
         requirement_spec_text=requirement_spec_text,
+        write_scope=write_scope,
     )
     if bootstrap:
         try:

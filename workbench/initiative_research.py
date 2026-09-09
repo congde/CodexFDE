@@ -18,7 +18,8 @@ class InitiativeResearch:
         if not capability['codex_available']:
             raise ValueError(capability['reason'])
         array = {'type': 'array', 'items': {'type': 'string'}}
-        fields = {key: array for key in ('findings', 'questions', 'non_goals', 'acceptance', 'write_scope', 'steps', 'sources')}
+        fields = {key: array for key in ('findings', 'questions', 'non_goals', 'acceptance', 'write_scope', 'steps', 'sources',
+                                         'users', 'scope', 'test_plan')}
         fields['goal'] = {'type': 'string'}
         schema = {'type': 'object', 'properties': fields, 'required': list(fields), 'additionalProperties': False}
         schema_path, output = folder / 'schema.json', folder / 'proposal.json'
@@ -32,6 +33,11 @@ class InitiativeResearch:
             '先阅读 AGENTS.md，再查明事项涉及的现有实现。向业务用户解释发现，区分已有能力和新增需求。'
             '根据原话及完整讨论记录，提出最多三个真正需要用户决定的问题；用户已经回答的不要重复问。'
             '信息足够时 questions 返回空列表，提出范围受控的本期目标、非目标、可验证的验收条件、实施步骤。'
+            'users 写实际使用者及使用场景；scope 写本期产品行为范围，不要用文件路径替代业务范围。'
+            'acceptance 写给定条件、操作、预期及失败后不变状态；test_plan 单独写如何构造数据、'
+            '调用真实入口、读取结果和复验异常路径，关联对应验收条目，不能只重复验收文字。'
+            '本轮调研只读是调研进程的权限，不是产品非目标；不要把“不修改代码、不执行测试”写入待开发需求。'
+            '用户没有确认的产品口径应保留在 questions，不要替用户决定或编造效率提升数据。'
             'write_scope 是你经代码调研建议修改的明确相对路径（包含必要测试），不要让用户猜路径。'
             'sources 必须是你实际查看、当前存在的源文件相对路径；findings 引用这些文件说明依据。'
             '不要编造调研结果、测试结果或用户决定；当前没有报销功能时明确说明，不能冒称优化已存在流程。'
@@ -75,8 +81,9 @@ class InitiativeResearch:
             raise ValueError('调研问题超过本轮上限，请重新整理')
         if not proposal['sources'] or any(p not in before for p in proposal['sources']):
             raise ValueError('方案没有可核对的源码依据')
-        if not proposal['questions'] and (not proposal['write_scope'] or not proposal['acceptance'] or not proposal['steps']):
-            raise ValueError('可执行方案缺少范围、验收或实施步骤')
+        if not proposal['questions'] and any(not proposal[key] for key in
+                ('users', 'scope', 'write_scope', 'acceptance', 'steps', 'test_plan')):
+            raise ValueError('可执行方案缺少使用者、产品范围、验收、实施步骤或测试计划')
         return {'proposal': proposal, 'source_manifest': before, 'changed_sources': changed_sources,
                 'invocation': {'command': command,
                 'workspace': str(repository), 'prompt': prompt, 'returncode': completed.returncode,

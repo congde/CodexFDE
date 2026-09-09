@@ -183,25 +183,39 @@ async function loadBase() {
 }
 async function loadPage(page,notify) {
   const inventoryRequest=page==="inventory" ? ++state.inventoryRequest : null;
+  const purchaseRequest=page==="purchases" ? (state.purchaseRequest=(state.purchaseRequest||0)+1) : null;
+  if(page==="purchases")setPurchaseStatus("loading");
   if(page==="inventory")setInventoryStatus("loading");
   setLoading(true);const current=$("#page-"+page);if(current)current.setAttribute("aria-busy","true");
   try {
     if (["dashboard","channels","sales","purchases","inventory","products","partners"].indexOf(page)>=0) await loadBase();
     if(page==="inventory" && inventoryRequest!==state.inventoryRequest)return;
-    if(page==="dashboard")await renderDashboard();if(page==="sales")await renderSales();if(page==="purchases")await renderPurchases();
+    if(page==="purchases" && purchaseRequest!==state.purchaseRequest)return;
+    if(page==="dashboard")await renderDashboard();if(page==="sales")await renderSales();if(page==="purchases")await renderPurchases(purchaseRequest);
     if(page==="channels")await renderChannels();
     if(page==="inventory")await renderInventory(inventoryRequest);if(page==="finance")await renderFinance();if(page==="products")await renderProducts();
     if(page==="partners")renderPartners();if(page==="audit")await renderAudit();if(page==="delivery")await renderDelivery();if(page==="settings")await renderSettings();
     if(page==="inventory" && inventoryRequest!==state.inventoryRequest)return;
+    if(page==="purchases" && purchaseRequest!==state.purchaseRequest)return;
     if(notify)toast("数据已刷新");
   } catch(error) {
+    if(page==="purchases") {
+      if(purchaseRequest!==state.purchaseRequest)return;
+      setPurchaseStatus("failed");
+    }
     if(page==="inventory") {
       if(inventoryRequest!==state.inventoryRequest)return;
       setInventoryStatus("failed");
     }
     $("#sync-state").classList.add("error");toast(error.message,"error");
   }
-  finally {setLoading(false);if(current && (page!=="inventory" || inventoryRequest===state.inventoryRequest))current.setAttribute("aria-busy","false");}
+  finally {
+    setLoading(false);
+    if(page==="purchases" && state.purchaseStatus==="failed" && (!state.page || state.page==="purchases")) {
+      $("#sync-state").classList.add("error");$("#sync-state span").textContent="采购数据加载失败";
+    }
+    if(current && (page!=="inventory" || inventoryRequest===state.inventoryRequest) && (page!=="purchases" || purchaseRequest===state.purchaseRequest))current.setAttribute("aria-busy","false");
+  }
 }
 
 function commandItems() {
@@ -329,8 +343,17 @@ function purchaseActions(o) {
   else if(o.status==="received")primary='<button class="button small" data-action="invoice-purchase" data-id="'+o.id+'">登记应付</button>';
   return primary+'<button class="button small ghost" data-action="purchase-view" data-id="'+o.id+'">详情</button>';
 }
-async function renderPurchases() {
+function setPurchaseStatus(value) {
+  state.purchaseStatus=value;state.purchases=[];state.receipts=[];
+  const message=value==="failed"?"采购数据加载失败":"正在加载采购数据";
+  const help=value==="failed"?"已隐藏旧结果，请恢复连接后点击查询或刷新。":"请等待本次查询完成。";
+  $("#purchases-table").innerHTML=empty(message,help);
+  $("#receipts-table").innerHTML=empty(message,help);
+}
+async function renderPurchases(request) {
   const result=await Promise.all([api("/api/v1/purchases/orders?limit=500&status="+encodeURIComponent($("#purchase-status").value)),api("/api/v1/purchases/receipts?limit=500")]);let items=result[0].items;
+  if(request!==state.purchaseRequest)return;
+  state.purchaseStatus="ready";
   const q=$("#purchase-search").value.trim().toLowerCase();if(q)items=items.filter(function(x){return(x.order_number+x.supplier_name).toLowerCase().indexOf(q)>=0;});
   state.purchases=items;
   $("#purchases-table").innerHTML=table(["采购单","供应商","交期","金额","状态","操作"],items.map(function(o){return '<tr><td><span class="cell-title">'+esc(o.order_number)+'</span><span class="cell-sub">'+esc(o.order_date)+'</span></td><td>'+esc(o.supplier_name)+'</td><td>'+esc(o.expected_date||"—")+'</td><td class="money">'+money(o.total_cents,o.currency)+'</td><td>'+status(o.status)+'</td><td><div class="row-actions">'+purchaseActions(o)+'</div></td></tr>';}));
@@ -738,7 +761,7 @@ async function openPurchaseInvoiceForm(id) {
 
 $$("[data-open]").forEach(function(button){button.onclick=function(){openDrawer(button.dataset.open);};});
 $("#drawer-close").onclick=closeDrawer;$("#drawer-backdrop").onclick=closeDrawer;
-$("#channel-filter").onclick=renderChannels;$("#sales-filter").onclick=renderSales;$("#purchase-filter").onclick=renderPurchases;$("#product-filter").onclick=renderProducts;$("#audit-filter").onclick=renderAudit;
+$("#channel-filter").onclick=renderChannels;$("#sales-filter").onclick=renderSales;$("#purchase-filter").onclick=function(){return loadPage("purchases");};$("#product-filter").onclick=renderProducts;$("#audit-filter").onclick=renderAudit;
 $("#refresh-alerts").onclick=async function(){try{await write("/api/v1/alerts/refresh",{});toast("风险告警已重新计算");await renderAudit();}catch(error){toast(error.message,"error");}};
 $("#run-reconciliation").onclick=async function(){const decision=await confirmAction({title:"运行全量业务对账",message:"将核对库存余额、销售履约、财务核销、复式凭证以及四项子账总账。",confirmLabel:"开始对账"});if(!decision.confirmed)return;try{await write("/api/v1/reconciliations/run",{type:"all"});toast("全量对账已完成");await renderAudit();}catch(error){toast(error.message,"error");}};
 $$("[data-tabs]").forEach(function(tabs){$$("button",tabs).forEach(function(button){button.onclick=function(){$$("button",tabs).forEach(function(x){x.classList.toggle("active",x===button);});$$("#page-"+tabs.dataset.tabs+" [data-tab-panel]").forEach(function(x){x.classList.toggle("hidden",x.dataset.tabPanel!==button.dataset.tab);});};});});

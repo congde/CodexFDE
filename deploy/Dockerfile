@@ -7,6 +7,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends git \
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 COPY . /app
+# The source allowlist excludes local Git history. Workbench project registration
+# still requires a repository root; initialize metadata without importing history.
+RUN git init --quiet /app
 RUN python -m pip install --no-cache-dir -e .
 
 FROM source AS verified

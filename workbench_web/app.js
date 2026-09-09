@@ -25,7 +25,7 @@ function renderDigest(detail) {
   const steps = [
     ['需求约定', document.getElementById('evidence-spec-summary').textContent, 'spec-card'],
     ['执行记录', document.getElementById('execution-summary').textContent + '\n' + document.getElementById('evidence-diff').textContent, 'diff-card'],
-    ['工作台复验', document.getElementById('evidence-eval').textContent, 'eval-card'],
+    ['工作台复验', document.getElementById('evidence-eval').textContent + '\n' + document.getElementById('control-issues').textContent, 'control-card'],
     ['具名验收', document.getElementById('evidence-review').textContent + '\n' + document.getElementById('evidence-review-note').textContent, 'task-actions']
   ];
   steps.forEach(function(step, index) {
@@ -67,7 +67,7 @@ function openComposer(binding) {
   document.getElementById('task-composer').showModal();
 }
 function focusEvidence(id) {
-  if (['spec-card', 'diff-card', 'eval-card', 'event-history'].includes(id)) selectDeliveryPanel('evidence');
+  if (['spec-card', 'diff-card', 'eval-card', 'control-card', 'event-history'].includes(id)) selectDeliveryPanel('evidence');
   const target = document.getElementById(id);
   if (target.tagName === 'DETAILS') target.open = true;
   target.scrollIntoView({behavior:'smooth', block:'center'});
@@ -369,6 +369,34 @@ function renderCases(cases) {
   });
 }
 
+function renderControlSurface(surface) {
+  const container = document.getElementById('control-surface');
+  container.innerHTML = '';
+  show('control-thesis', surface && surface.thesis ? surface.thesis : '控制面尚未生成。');
+  const components = surface && Array.isArray(surface.components) ? surface.components : [];
+  if (!components.length) {
+    container.textContent = '还没有 control surface 投影，不能据此判断 Harness 外壳。';
+    show('control-issues', '控制面缺失');
+    return;
+  }
+  components.forEach(function(item) {
+    const row = document.createElement('article');
+    row.className = 'control-gate state-' + (item.state || 'unknown');
+    const title = document.createElement('b');
+    title.textContent = item.label || item.id || '未命名闸门';
+    const state = document.createElement('span');
+    state.textContent = item.state || 'unknown';
+    const summary = document.createElement('p');
+    summary.textContent = item.summary || '';
+    row.appendChild(title);
+    row.appendChild(state);
+    row.appendChild(summary);
+    container.appendChild(row);
+  });
+  const issues = surface && Array.isArray(surface.issues) ? surface.issues : [];
+  show('control-issues', issues.length ? '控制面缺口：' + issues.join('、') : '四件套控制面已可核对。');
+}
+
 function renderActions(detail) {
   const actions = detail.allowed_actions || [];
   const verify = document.getElementById("action-verify");
@@ -452,7 +480,9 @@ function renderEvidence(detail) {
   const stopped = ['failed', 'dead_letter'].includes((detail.status || {}).code);
   show('role-human', review.reviewed_by ? '已由 ' + review.reviewed_by + ' 留下审核决定' : stopped ? '先核对停止原因与实际改动' : '限定范围 · 等待具名验收');
   show('role-codex', isCode ? (detail.execution && detail.execution.available ? '已留下执行记录，点击核对改动' : stopped ? '本次已停止，执行记录尚不完整' : '已授权，尚待执行证据') : '本次未调用，仅运行复验');
-  show('role-workbench', evalView.available ? '已保存自动检查报告' : stopped ? '本次没有完成检查，请先核对停止原因' : '等待检查结果入账');
+  renderControlSurface(detail.control_surface);
+  const controlReady = detail.control_surface && detail.control_surface.ready;
+  show('role-workbench', controlReady ? 'Harness 四件套已有可核对闸门' : stopped ? '控制面有缺口，请先核对停止原因' : '正在装载 Harness 控制面');
   show("execution-summary", isCode ? "本次已授权 Codex 修改代码" : "本次仅复验，未调用 Codex");
   show("evidence-diff", files.length ? files.join("\n") : isCode ? "尚无已记录的文件改动，请结合执行事件核对。" : "本次不修改文件；自动检查结果不能证明完成了新功能。");
   renderCases(evalView.cases);

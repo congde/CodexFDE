@@ -32,7 +32,22 @@ class DeliveryViewTests(unittest.TestCase):
                 "report_path": "reports/TASK-1234567890-harness-blocking.json",
                 "report_sha256": "a" * 64,
             },
-            "events": [],
+            "events": [
+                {
+                    "detail": "自动流水线开始推进",
+                    "evidence": {
+                        "attempt": 1,
+                        "max_attempts": 3,
+                    },
+                },
+                {
+                    "detail": "开始受控执行",
+                    "evidence": {
+                        "allowed_actions": ["read_spec", "read_workspace", "run_blocking_eval", "run_workspace_shell"],
+                        "forbidden_actions": ["write_runtime_database", "approve_business_document", "skip_eval"],
+                    },
+                },
+            ],
             "reviewed_by": None,
             "review_decision": None,
             "review_note": None,
@@ -63,6 +78,15 @@ class DeliveryViewTests(unittest.TestCase):
         self.assertEqual(view["eval"]["report_sha256"], compact["eval"]["report_sha256"])
         self.assertIn("approve", view["allowed_actions"])
         self.assertTrue(view["integrity"]["truthful"])
+        self.assertEqual("workbench.control-surface/v1", view["control_surface"]["schema"])
+        self.assertIn("控制面", view["control_surface"]["thesis"])
+        self.assertEqual(
+            ["loop", "tools", "context", "guardrails"],
+            [item["id"] for item in view["control_surface"]["components"]],
+        )
+        guardrails = next(item for item in view["control_surface"]["components"] if item["id"] == "guardrails")
+        self.assertEqual("observed", guardrails["state"])
+        self.assertEqual("pass", guardrails["evidence"]["eval_decision"])
 
     def test_unknown_status_is_explicitly_untrusted(self) -> None:
         view = build_delivery_view({
@@ -74,6 +98,27 @@ class DeliveryViewTests(unittest.TestCase):
         self.assertEqual("未知状态", view["status"]["label"])
         self.assertTrue(view["status"]["requires_human"])
         self.assertIn("unknown_status", view["integrity"]["issues"])
+        self.assertFalse(view["integrity"]["truthful"])
+
+    def test_control_surface_reports_missing_gates_after_execution_started(self) -> None:
+        task = {
+            "id": "TASK-MISSING00",
+            "request": "长任务翻车诊断",
+            "status": "executing",
+            "automation_mode": "automatic",
+            "execution_mode": "codex",
+            "write_scope": [],
+            "execution_timeout_seconds": 900,
+            "spec_path": "FDE_SPEC.md",
+            "business_refs": [],
+            "events": [],
+            "updated_at": "2026-08-31 01:00:00",
+        }
+        view = build_delivery_view(task, now=datetime(2026, 8, 31, 1, 0, tzinfo=timezone.utc))
+        self.assertIn("loop_event_missing", view["control_surface"]["issues"])
+        self.assertIn("tool_permissions_missing", view["control_surface"]["issues"])
+        self.assertIn("write_scope_missing", view["control_surface"]["issues"])
+        self.assertFalse(view["control_surface"]["ready"])
         self.assertFalse(view["integrity"]["truthful"])
 
     def test_service_joins_task_feedback_and_evolution(self) -> None:

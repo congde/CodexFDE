@@ -29,10 +29,14 @@ function renderInitiativeWork(data) {
   iw('documents').textContent=JSON.stringify({documents:data.documents || [],confirmations:data.document_confirmations || [],delivery_records:data.delivery_records || [],completed_cycles:data.completed_cycles || []},null,2);
   ['release','outcome','reopen'].forEach(key=>iw(key).disabled=initiativeWorkPending);
   const doc=(data.documents || []).slice(-1)[0];
-  iw('prd').textContent=doc ? '版本 '+doc.version+'\n业务问题：'+doc.prd.business_problem : '';
+  iw('prd').textContent=doc ? '版本 '+doc.version+'\n业务问题：'+doc.prd.business_problem+
+    '\n使用者与场景：'+((doc.prd.users || []).join('；') || '此版本未单独记录，请在讨论中补充')+
+    '\n本期产品范围：'+((doc.prd.scope || []).join('；') || '此版本未单独记录，请核对下方目标与验收')+
+    '\n待确认问题：'+((doc.prd.questions || []).join('；') || '没有待答问题；仍需人工核对产品口径') : '';
   if(doc && iw('prd-metric').dataset.version!==data.id+':'+doc.version){iw('prd-metric').value=doc.prd.success_metric || '';iw('prd-metric').dataset.version=data.id+':'+doc.version;}
   iw('prd-metric').disabled=data.stage!=='ready' || data.prd_confirmed;
-  iw('technical').textContent=doc ? '依据：'+doc.technical_plan.findings.join('\n')+'\n测试计划：'+(doc.technical_plan.test_plan || []).join('；') : '';
+  iw('technical').textContent=doc ? '依据：'+doc.technical_plan.findings.join('\n')+'\n测试计划：'+
+    ((doc.technical_plan.test_plan || []).join('\n') || '此版本未单独记录测试方法，请补充数据、操作、检查与失败路径') : '';
   iw('confirm-prd').hidden=data.stage!=='ready' || data.prd_confirmed;
   iw('confirm-prd').disabled=initiativeWorkPending;
 

@@ -232,6 +232,7 @@ class InitiativeWorkflowTests(unittest.TestCase):
 
     def test_research_invokes_read_only_codex_and_requires_valid_source_evidence(self):
         proposal = {'goal': '更新数值', 'findings': ['找到数值实现'], 'questions': ['目标值？'],
+            'users': [], 'scope': [], 'test_plan': [],
             'non_goals': [], 'acceptance': [], 'write_scope': [], 'steps': [], 'sources': ['flowerp/value.py']}
         calls = []
         def run(runner, command, prompt, timeout, on_line, started):
@@ -246,6 +247,14 @@ class InitiativeWorkflowTests(unittest.TestCase):
             self.assertEqual('read-only', calls[0][calls[0].index('--sandbox') + 1])
             self.assertEqual(0, result['invocation']['returncode'])
             self.assertTrue((folder / 'events.jsonl').exists())
+            proposal['questions'] = []
+            proposal.update(write_scope=['flowerp/value.py'], acceptance=['值等于 2'], steps=['修改数值'])
+            with self.assertRaisesRegex(ValueError, '使用者'):
+                InitiativeResearch()(self.root, self.runtime, self.runtime / 'incomplete-prd', {}, lambda _: None)
+            proposal.update(users=['使用者读取数值'], scope=['将数值更新为 2'],
+                            test_plan=['调用读取入口，断言返回 2；检查其他数据不变'])
+            ready = InitiativeResearch()(self.root, self.runtime, self.runtime / 'complete-prd', {}, lambda _: None)
+            self.assertNotEqual(ready['proposal']['acceptance'], ready['proposal']['test_plan'])
             proposal['sources'] = ['not-real.py']
             with self.assertRaisesRegex(ValueError, '源码依据'):
                 InitiativeResearch()(self.root, self.runtime, self.runtime / 'invalid-research', {}, lambda _: None)

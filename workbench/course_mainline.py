@@ -107,8 +107,8 @@ LESSONS: tuple[LessonContract, ...] = (
             acceptance=("越界请求能够被规则明确判为拒绝。", "规则同时给出正常路径和失败后不变状态。")),
     _lesson(3, "把模糊需求变成可验收 Spec", "design", "六段式 Spec Schema 与解析器", "签字确认库存导出合同",
             "在外循环直接监督 Codex 完成最小 Spec 解析器，并为 SKU 库存导出编写可解析、可验收且不提前扩展订单或采购功能的 Spec。",
-            refs=("SKU:COURSE-DEMO",), scope=("FDE_SPEC.md", "workbench/spec.py", "tests/"),
-            acceptance=("保存 Codex 建造解析器的任务合同、范围内 Diff 和独立红绿证据。", "Spec 的六个必要章节可被解析。", "库存导出的列、排序、空结果与错误输入均有明确预期。"),
+            refs=("SKU:COURSE-DEMO",), scope=("FDE_SPEC.md", "lesson-03-submission/", "workbench/templates/SPEC_TEMPLATE.md", "workbench/spec.py", "workbench/cli.py", "tests/"),
+            acceptance=("保存 Codex 建造解析器的任务合同、范围内 Diff 和独立红绿证据。", "同一六部分模板用于库存合同与采购草稿，业务口径分别确认。", "Spec 的六个必要章节可被解析。", "工作台 spec 入口实际调用个人解析器；完整输入保留六字段原文，缺项输入明确拒绝，输入文件不变。", "库存导出的列、排序、空结果与错误输入均有明确预期。"),
             evals=("spec_contract_rejects_ambiguity",)),
     _lesson(4, "委托 Codex 执行一次最小变更", "build", "受控执行、Diff 摘要与最小 Eval", "交付库存导出",
             "先直接监督 Codex 补齐并独立验收 Workbench V0，再让 V0 在限定写集内调用 Codex 实现 SKU 库存导出，并保存两张 Ticket 的 Diff、命令和正反路径证据。",
@@ -264,11 +264,17 @@ def write_lesson_spec(number: int, path: str | Path,
 
 def create_lesson_task(store, number: int, runtime_dir: str | Path, *, actor: str = "course-learner",
                        execution_mode: str = "verify", execution_timeout_seconds: int = 900,
-                       additional_eval_cases: tuple[str, ...] = (), requirement_spec_text: str | None = None) -> dict:
+                       additional_eval_cases: tuple[str, ...] = (), requirement_spec_text: str | None = None,
+                       write_scope: tuple[str, ...] | None = None) -> dict:
     """Create a task that consumes the lesson contract instead of the end-state root Spec."""
     if number < 4:
         raise ValueError("L01-L03 是接手与设计阶段；课程交付任务从 L04 开始")
     lesson = lesson_contract(number)
+    from .execution import normalize_write_scope
+    scope = list(lesson.write_scope) if write_scope is None else normalize_write_scope(write_scope)
+    if not scope or any(not any(path == upper.rstrip('/') or path.startswith(upper.rstrip('/') + '/')
+                               for upper in lesson.write_scope) for path in scope):
+        raise ValueError('本次写入范围只能收窄课程合同，不能为空或扩展到合同外')
     from .course_requirement import freeze_requirement_spec
     specific = freeze_requirement_spec(lesson, requirement_spec_text, additional_eval_cases,
                                       required=lesson.dynamic_eval_required and execution_mode == 'codex')
@@ -286,7 +292,7 @@ def create_lesson_task(store, number: int, runtime_dir: str | Path, *, actor: st
         spec_path=str(spec_path),
         actor=actor,
         execution_mode=execution_mode,
-        write_scope=list(lesson.write_scope),
+        write_scope=scope,
         execution_timeout_seconds=execution_timeout_seconds,
     )
     if specific:

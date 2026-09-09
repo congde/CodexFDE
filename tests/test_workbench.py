@@ -155,6 +155,11 @@ done
                               suite_runner=lambda *a, **k: self.report())
             self.assertEqual("review", result["status"])
             self.assertIsNone(result["reviewed_by"])
+            start = next(event for event in result["events"] if event["detail"] == "开始受控执行")
+            evidence = start["evidence"]
+            self.assertIn("write_code_in_task_scope", evidence["allowed_actions"])
+            self.assertIn("skip_eval", evidence["forbidden_actions"])
+            self.assertEqual(900, evidence["execution_timeout_seconds"])
 
     def test_codex_execution_runner_records_real_diff_commands_and_usage(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
