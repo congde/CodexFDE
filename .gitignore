@@ -9,6 +9,7 @@ __pycache__/
 scripts/presentations/*
 .codex-tmp/
 .tmp/
+.course*/
 
 .l01-ppt-build/
 deliverables/
@@ -75,7 +76,7 @@ instance/
 # Scrapy stuff:
 .scrapy
 
-# Sphinx documentation
+
 docs/
 
 # PyBuilder

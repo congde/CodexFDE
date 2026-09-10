@@ -98,20 +98,13 @@ def launch_flowerp(
         )
 
     root = Path(repository_root).resolve()
-    command = [
-        sys.executable,
-        "-X",
-        "utf8",
-        "-m",
-        "workbench.cli",
-        "serve",
-        "--host",
-        host,
-        "--port",
-        str(port),
-        "--runtime-dir",
-        str(runtime_dir),
-    ]
+    from .external_project import command as product_command
+    try:
+        root, command = product_command(['serve', '--host', host, '--port', str(port),
+                                         '--runtime-dir', str(Path(runtime_dir).resolve())],
+                                        root=root if (root / 'flowerp/server.py').is_file() else None)
+    except ValueError as error:
+        raise FlowERPStartupError(str(error)) from error
     creationflags = 0
     if sys.platform == "win32" and hasattr(subprocess, "CREATE_NEW_PROCESS_GROUP"):
         creationflags = subprocess.CREATE_NEW_PROCESS_GROUP

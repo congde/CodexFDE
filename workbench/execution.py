@@ -9,11 +9,14 @@ import shutil
 import subprocess
 import threading
 import time
+import uuid
+from datetime import datetime, timezone
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Callable, Iterator
 from .process_guard import spawn as spawn_owned_process
+from .codex_command import resolve_codex_command
 
 
 ProcessRunner = Callable[..., subprocess.CompletedProcess]
@@ -68,6 +71,35 @@ def _is_sensitive_path(relative: str) -> bool:
     )
 
 
+def validate_v0_authorization(mode, workspace_path, scopes, timeout):
+    if mode not in {'verify', 'codex'}:
+        raise ValueError('执行模式必须是 verify 或 codex')
+    if type(timeout) is not int or not 30 <= timeout <= 3600:
+        raise ValueError('超时必须是 30..3600 秒的整数')
+    if not workspace_path or not Path(workspace_path).is_absolute() or not Path(workspace_path).is_dir():
+        raise ValueError('必须指定存在的工作目录绝对路径')
+    workspace = Path(workspace_path).resolve()
+    if mode == 'codex':
+        if not isinstance(scopes, list) or any(not isinstance(value, str) for value in scopes):
+            raise ValueError('逐文件允许清单必须是路径数组')
+        controller = Path(__file__).resolve().parents[1]
+        if workspace == controller or controller.is_relative_to(workspace):
+            raise ValueError('编码必须使用隔离候选目录，不能直接修改工作台源仓库')
+        files = normalize_write_scope(scopes)
+        if not files:
+            raise ValueError('编码必须指定逐文件允许清单')
+        for name in files:
+            target = workspace / name
+            if target.is_dir() or not target.resolve().is_relative_to(workspace):
+                raise ValueError(f'允许清单必须是候选目录内的具体文件：{name}')
+            for node in (target, *target.parents):
+                if node == workspace.parent:
+                    break
+                if node.is_symlink() or (node.exists() and getattr(node.stat(), 'st_file_attributes', 0) & 0x400):
+                    raise ValueError('允许文件路径不能包含链接或重解析点')
+    return str(workspace)
+
+
 class CodexExecutionRunner:
     """Run one task through ``codex exec`` and return independently derived evidence.
 
@@ -89,7 +121,7 @@ class CodexExecutionRunner:
     ) -> None:
         self.workspace_root = Path(workspace_root).resolve()
         self.runtime_dir = Path(runtime_dir).resolve()
-        self.executable = executable or os.getenv("FLOWERP_CODEX_COMMAND", "codex")
+        self.executable = resolve_codex_command(executable)
         self.process_runner = process_runner or subprocess.run
 
     def capabilities(self) -> dict:
@@ -140,6 +172,13 @@ class CodexExecutionRunner:
             }
         if mode != "codex":
             raise ValueError(f"未知执行模式：{mode}")
+        if task.get('authorization_policy') == 'v0':
+            bound = validate_v0_authorization(mode, task.get('workspace_path'), task.get('write_scope'),
+                                               task.get('execution_timeout_seconds'))
+            if Path(bound) != self.workspace_root:
+                raise ValueError('执行器工作目录与任务授权候选不一致')
+            if self.runtime_dir.is_relative_to(self.workspace_root):
+                raise ValueError('执行证据目录必须位于编码候选之外')
         scopes = normalize_write_scope(task.get("write_scope", []))
         if not scopes:
             raise ValueError("Codex 代码执行至少需要一个明确写入范围")
@@ -158,14 +197,18 @@ class CodexExecutionRunner:
         on_codex_line: CodexLineCallback | None = None,
     ) -> dict:
         task_id = str(task["id"])
-        run_dir = self.runtime_dir / "delivery" / task_id
-        run_dir.mkdir(parents=True, exist_ok=True)
+        attempt_id = uuid.uuid4().hex
+        run_dir = self.runtime_dir / "delivery" / task_id / attempt_id
+        run_dir.mkdir(parents=True, exist_ok=False)
         schema_path = run_dir / "output-schema.json"
         result_path = run_dir / "final.json"
         result_path.unlink(missing_ok=True)
         (run_dir / "evidence.json").unlink(missing_ok=True)
         schema_path.write_text(json.dumps(self._output_schema(), ensure_ascii=False, indent=2), encoding="utf-8")
-        before = self._snapshot()
+        strict = task.get('authorization_policy') == 'v0'
+        before = self._snapshot(strict=strict)
+        if strict and any(state.digest.startswith('link:') for state in before.values()):
+            raise ValueError('编码候选包含链接或重解析点，请先核对隔离目录')
         prompt = self._build_prompt(task, scopes)
         from .codex_options import headless_options
         command = [
@@ -203,18 +246,38 @@ class CodexExecutionRunner:
                 completed = subprocess.CompletedProcess(command, 127, stdout="", stderr=str(exc))
                 launch_error = f"Codex CLI 无法启动：{type(exc).__name__}: {exc}"
         duration_ms = int((time.monotonic() - started) * 1000)
-        after = self._snapshot()
-        changes = self._changes(before, after)
+        # Persist raw process results before filesystem inspection can fail.
+        (run_dir / 'stdout.txt').write_text(_text(completed.stdout), encoding='utf-8')
+        (run_dir / 'stderr.txt').write_text(_text(completed.stderr), encoding='utf-8')
+        (run_dir / 'process.json').write_text(json.dumps({'command': command, 'returncode': completed.returncode,
+            'timed_out': timed_out, 'workspace': str(self.workspace_root)}, ensure_ascii=False), encoding='utf-8')
+        inspection_error = ''
+        try:
+            after = self._snapshot(strict=strict)
+            changes = self._changes(before, after)
+        except OSError as exc:
+            after, changes = {}, {}
+            inspection_error = f'无法核对执行后的文件差异：{exc}；原始进程结果已保存'
         changed_files = sorted(changes)
-        out_of_scope = [path for path in changed_files if not self._allowed(path, scopes)]
+        out_of_scope = [path for path in changed_files if not (
+            path in scopes and not _is_sensitive_path(path) and not (after.get(path) and after[path].digest.startswith('link:')) if strict
+            else self._allowed(path, scopes))]
+        stdout_path, stderr_path = run_dir / 'stdout.txt', run_dir / 'stderr.txt'
+        stdout_path.write_text(_text(completed.stdout), encoding='utf-8')
+        stderr_path.write_text(_text(completed.stderr), encoding='utf-8')
+        diff_path = run_dir / 'changes.diff'
+        diff_path.write_text(self._diff(before, after, changed_files, limit=None), encoding='utf-8')
         events = self._parse_events(_text(completed.stdout))
         final = self._load_final(result_path)
-        success = completed.returncode == 0 and not timed_out and not launch_error and not out_of_scope
+        success = completed.returncode == 0 and not timed_out and not launch_error and not out_of_scope and not inspection_error
         message = "Codex 已完成受控代码执行" if success else (
-            launch_error or
+            launch_error or inspection_error or
             (f"检测到越界写入：{', '.join(out_of_scope)}" if out_of_scope else f"Codex 退出码为 {completed.returncode}")
         )
         evidence = {
+            "attempt_id": attempt_id,
+            "recorded_at": datetime.now(timezone.utc).isoformat(),
+            "provenance": "injected_process_runner" if self.process_runner is not subprocess.run else "codex_cli",
             "success": success,
             "invocation": {"command": command, "workspace": str(self.workspace_root), "prompt": prompt},
             "mode": "codex_exec",
@@ -231,6 +294,7 @@ class CodexExecutionRunner:
             "diff": self._diff(before, after, changed_files),
             "returncode": completed.returncode,
             "timed_out": timed_out,
+            "inspection_error": inspection_error,
             "duration_ms": duration_ms,
             "thread_id": events["thread_id"],
             "usage": events["usage"],
@@ -239,8 +303,11 @@ class CodexExecutionRunner:
             "final": final,
             "stdout_tail": _text(completed.stdout)[-20_000:],
             "stderr_tail": _text(completed.stderr)[-10_000:],
-            "artifacts": {"output_schema": str(schema_path), "final_message": str(result_path)},
+            "artifacts": {"output_schema": str(schema_path), "final_message": str(result_path),
+                          "stdout": str(stdout_path), "stderr": str(stderr_path), "diff": str(diff_path)},
         }
+        evidence['artifact_sha256'] = {key: hashlib.sha256(Path(value).read_bytes()).hexdigest()
+                                      for key, value in evidence['artifacts'].items() if Path(value).is_file()}
         (run_dir / "evidence.json").write_text(
             json.dumps(evidence, ensure_ascii=False, indent=2), encoding="utf-8",
         )
@@ -328,13 +395,18 @@ class CodexExecutionRunner:
             stdout="".join(stdout_parts), stderr="".join(stderr_parts),
         )
 
-    def _snapshot(self) -> dict[str, _FileState]:
+    def _snapshot(self, *, strict=False) -> dict[str, _FileState]:
         result: dict[str, _FileState] = {}
         for path in self.workspace_root.rglob("*"):
+            relative_path = path.relative_to(self.workspace_root)
+            if strict and (path.is_symlink() or getattr(path.stat(), 'st_file_attributes', 0) & 0x400):
+                result[relative_path.as_posix()] = _FileState('link:' + str(path.resolve()), 0, None)
+                continue
             if not path.is_file() or path.is_symlink():
                 continue
             relative_path = path.relative_to(self.workspace_root)
-            if any(part.lower() in _EXCLUDED_DIRS for part in relative_path.parts):
+            excluded = (_EXCLUDED_DIRS - {'.git', '.runtime', '.tmp'}) if strict else _EXCLUDED_DIRS
+            if any(part.lower() in excluded for part in relative_path.parts):
                 continue
             relative = relative_path.as_posix()
             digest = hashlib.sha256()
@@ -370,7 +442,7 @@ class CodexExecutionRunner:
         return any(path == scope or path.startswith(scope.rstrip("/") + "/") for scope in scopes)
 
     @staticmethod
-    def _diff(before: dict[str, _FileState], after: dict[str, _FileState], paths: list[str]) -> str:
+    def _diff(before: dict[str, _FileState], after: dict[str, _FileState], paths: list[str], limit=_MAX_DIFF_CHARS) -> str:
         chunks: list[str] = []
         for path in paths:
             old = before.get(path)
@@ -383,10 +455,10 @@ class CodexExecutionRunner:
             chunks.extend(difflib.unified_diff(
                 old_lines, new_lines, fromfile=f"a/{path}", tofile=f"b/{path}", n=3,
             ))
-            if sum(len(value) for value in chunks) >= _MAX_DIFF_CHARS:
+            if limit is not None and sum(len(value) for value in chunks) >= limit:
                 chunks.append("\n... diff truncated by workbench ...\n")
                 break
-        return "".join(chunks)[:_MAX_DIFF_CHARS]
+        return "".join(chunks)[:limit]
 
     @staticmethod
     def _parse_events(raw: str) -> dict:

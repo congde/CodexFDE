@@ -24,7 +24,7 @@ def bootstrap_default_project(
     api: HarnessPlatformAPI,
     *,
     project_id: str = "PROJECT-FLOWERP",
-    name: str = "FlowERP",
+    name: str = "CodexFDE 工作台",
 ) -> dict:
     """Register the repository root as the default target project if missing."""
     root = api.repository_root

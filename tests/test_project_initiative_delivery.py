@@ -104,6 +104,31 @@ class ProjectInitiativeTests(unittest.TestCase):
         self.assertEqual('idle', self.state()['stage'])
         self.assertEqual(release, self.state()['completed_cycles'][-1]['current_release'])
 
+    def test_workbench_changes_do_not_invalidate_registered_erp_research(self):
+        self.call('discuss', 'change value')
+        self.wait()
+        (self.root / 'first/value.txt').write_text('workbench change')
+        state = self.state()
+        self.assertEqual('current', state['source_check']['status'])
+        self.assertEqual('', state['warning'])
+        self.call('confirm_prd')
+        self.assertEqual('confirmed', self.call('confirm', 'reviewer')['stage'])
+        (self.root / 'second/value.txt').write_text('actual ERP change')
+        self.assertEqual('changed', self.state()['source_check']['status'])
+
+    def test_added_project_can_discuss_before_eval_configuration_but_cannot_confirm(self):
+        project = self.registered[1]
+        self.projects.configure(project['id'], [])
+        self.call('discuss', 'change value')
+        self.assertEqual('ready', self.wait()['stage'])
+        self.call('confirm_prd')
+        with self.assertRaisesRegex(ValueError, '配置质量检查命令'):
+            self.call('confirm', 'reviewer')
+        with self.assertRaisesRegex(ValueError, '运行环境'):
+            self.service.preflight(self.item['id'])
+        self.projects.configure(project['id'], project['eval_command'])
+        self.assertEqual('confirmed', self.call('confirm', 'reviewer')['stage'])
+
     def test_prd_gate_and_new_discussion_invalidate_confirmation(self):
         self.call('discuss', 'change value')
         self.wait()
@@ -181,6 +206,10 @@ class ProjectInitiativeTests(unittest.TestCase):
         self.assertEqual(app.default_project, app.initiatives.get(legacy['id'])['project_id'])
         again = WorkbenchApp(self.runtime)
         self.assertEqual(app.default_project, again.default_project)
+        app.projects.set_default(self.registered[1]['id'])
+        configured = WorkbenchApp(self.runtime)
+        self.assertEqual(self.registered[1]['id'], configured.default_project)
+        self.assertEqual(app.default_project, configured.initiatives.get(legacy['id'])['project_id'])
         server = ThreadingHTTPServer(('127.0.0.1', 0), make_handler(app))
         worker = threading.Thread(target=server.serve_forever, daemon=True)
         worker.start()

@@ -1,8 +1,8 @@
 services:
   flowerp:
-    image: flowerp-course:local
+    image: flowerp-product:local
     build:
-      context: ..
+      context: ${FLOWERP_PROJECT_ROOT:-../../flowERP}
       dockerfile: deploy/Dockerfile
     ports:
       - "${FLOWERP_BIND_IP:-127.0.0.1}:${FLOWERP_PORT:-8000}:8000"
@@ -41,7 +41,7 @@ services:
         max-file: "5"
 
   workbench:
-    image: flowerp-course:local
+    image: codexfde-workbench:local
     build:
       context: ..
       dockerfile: deploy/Dockerfile

@@ -216,6 +216,21 @@ def build_delivery_view(
             issues.append(issue)
 
     task_projection = dict(task)
+    validations = [event.get('evidence', {}).get('validation') for event in task.get('events', [])
+                   if isinstance(event.get('evidence'), dict) and event['evidence'].get('validation')]
+    risks = []
+    if task.get('status') != 'completed':
+        risks.append('尚未获得实际审核者接受')
+    if task.get('error'):
+        risks.append(str(task['error']))
+    if task.get('execution_mode') == 'verify':
+        risks.append('仅复验已有候选，未调用 Codex 编码')
+    if execution['evidence'].get('provenance') == 'injected_process_runner':
+        risks.append('编码进程为控制实验替身，不是真实 Codex 调用')
+    if task.get('authorization_policy') != 'v0':
+        risks.append('历史或课程接口任务；未采用 V0 逐文件授权合同')
+    if not any(item.get('command') for item in validations):
+        risks.append('尚无独立验证命令记录')
     if not include_detail:
         for key in ("spec", "result", "events"):
             task_projection.pop(key, None)
@@ -226,6 +241,11 @@ def build_delivery_view(
         "request": task.get("request") or "",
         "business_refs": list(task.get("business_refs") or []),
         "task": task_projection,
+        "delivery_summary": {
+            "changed_files": execution['changed_files'], "validations": validations,
+            "result": task.get('status'), "remaining_risks": risks,
+            "workspace": task.get('workspace_path') or execution['evidence'].get('invocation', {}).get('workspace'),
+        },
         "status": status,
         "freshness": freshness,
         "policy": {
@@ -233,9 +253,13 @@ def build_delivery_view(
             "execution_mode": task.get("execution_mode") or "verify",
             "write_scope": list(task.get("write_scope") or []),
             "execution_timeout_seconds": task.get("execution_timeout_seconds"),
+            "workspace_path": task.get('workspace_path'),
+            "authorization_policy": task.get('authorization_policy'),
         },
         "lane": classify_lane(task),
         "spec": {
+            "text": task.get('spec_text') if include_detail else None,
+            "sha256": task.get('spec_sha256'),
             "available": isinstance(task.get("spec"), dict) and bool(task.get("spec")),
             "path": task.get("spec_path") or "",
             "title": spec_title(task.get("spec")) or str(task.get("request") or "")[:120],

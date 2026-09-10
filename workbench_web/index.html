@@ -5,15 +5,16 @@
 <a class="brand" href="#overview"><span class="brand-mark">✦</span><span>AI 研发工作台<small>PERSONAL WORKBENCH</small></span></a>
 <div class="workspace"><span class="project-icon">W</span><div><small>个人工作空间</small><strong>本地项目交付</strong></div><span class="local-tag">本机</span></div>
 <nav aria-label="工作台导航"><button class="nav-item active" data-view="overview">◫　项目交付</button><button class="nav-item" id="new-decision" data-view="decision">◇　事项与决策 <small>新需求</small></button><button class="nav-item" data-view="delivery">◇　交付记录 <span id="review-count" class="count">0</span></button><button class="nav-item" data-view="course">▤　课程与练习</button><a class="nav-item" id="erp-link" href="http://127.0.0.1:8000" target="_blank" rel="noopener">↗　打开 FlowERP <small>客户项目</small></a></nav>
-<div class="sidebar-bottom"><label for="task-actor">你的署名</label><input id="task-actor" maxlength="80" placeholder="填写姓名或课堂昵称" required><p id="identity-status" role="status">先填写署名，再提交需求或作出验收决定。</p><details><summary>关于当前工作台</summary><p id="thesis">通过工作台组织人与 Codex 协同。</p><p id="harness-note">可选 Harness :8010 不是大纲通过项。</p><p>工作台是组织写代码的主体，Codex 执行已授权的修改。</p></details></div>
+<div class="sidebar-bottom"><details><summary>关于当前工作台</summary><p id="thesis">通过工作台组织人与 Codex 协同。</p><p id="harness-note">可选 Harness :8010 不是大纲通过项。</p><p>工作台是组织写代码的主体，Codex 执行已授权的修改。</p></details></div>
 </aside>
 <div class="workspace-main">
 <header class="page-header"><div><div class="breadcrumb">个人研发工作台 <span>/</span> <span id="page-section">项目交付</span></div><h1 id="page-title">从目标，到可验收的结果。</h1></div><div class="header-actions"><button class="secondary" id="refresh-tasks">↻ 刷新</button><button class="primary" id="new-task">＋ 新建交付事项</button></div></header>
 <main><div class="data-strip"><span class="local-dot"></span><span id="data-status" role="status" aria-live="polite">正在连接本地工作台…</span></div>
+<section class="identity-bar" aria-label="交付署名"><label for="task-actor">你的署名</label><input id="task-actor" maxlength="80" placeholder="填写姓名或课堂昵称" required><p id="identity-status" role="status">先填写署名，再提交需求或作出验收决定。</p></section>
 <p id="mock-notice" class="next-action" hidden>课程展示数据：带 [Mock课程演示] 的事项、需求和审核角色为模拟，仅用于演示流程，不代表学生作业、真实人审或课程达成。Eval 报告来自参考仓库实际复验。</p>
 <section id="execution-recovery" class="contract-card" hidden><h2>找回上次交付</h2><p id="execution-recovery-status" role="status">上次授权的结果尚未核对。先查看原记录，避免重复提交。</p><button id="resume-execution" class="secondary">查看上次执行进度</button></section>
 <div id="view-overview">
-<div class="home-toolbar"><p>需要你决定的事，与工作台正在推进的事。</p><label>项目<select id="home-project"><option value="all">全部项目</option></select></label></div>
+<div class="home-toolbar"><p>需要你决定的事，与工作台正在推进的事。</p><button id="open-project-registration" class="secondary" type="button">＋ 添加项目</button><label>项目<select id="home-project"><option value="all">全部项目</option></select></label></div>
 <section class="delivery-stats" aria-label="真实事项进展">
 <button data-home-filter="attention"><span>需要你决定</span><strong id="home-attention">—</strong><small>回答问题 · 确认方案 · 验收</small></button>
 <button data-home-filter="running"><span>工作台处理中</span><strong id="home-running">—</strong><small>调研 · 排队 · 执行与复验</small></button>
@@ -25,8 +26,17 @@
 </div>
 <div id="view-decision" hidden>
 <section class="decision-intro"><div><span class="eyebrow">DELIVERY WORKSPACE</span><h2>事项与决策</h2><p class="muted">一个事项，贯穿目标、执行、验收和效果回收。</p></div><button class="primary" id="capture-initiative">＋ 记录新事项</button></section>
-<details id="project-registration"><summary>管理项目 · 登记本地项目</summary><p>项目需要独立 Git 工作区。测试从候选目录运行，输出包含 summary.decision（pass/block）的 JSON；报告路径可用 {report_path}，候选目录可用 {workspace}。</p>
-<label>项目名称<input id="project-name"></label><label>源码目录<input id="project-root"></label><label>测试命令参数（JSON 数组，首项是项目运行环境的绝对路径）<textarea id="project-eval" placeholder='["D:/project/.venv/Scripts/python.exe", "check.py"]'></textarea></label><button type="button" id="project-register">具名登记项目</button><p id="project-status" role="status"></p></details>
+<details id="project-registration"><summary>管理项目 · 添加本地目录或 Git 仓库</summary><p>添加后即可选择项目并发起调研。每个项目使用自己的目录，质量检查未配置前不能启动代码交付。</p>
+<div id="project-list"></div><h3 id="project-form-title">添加项目</h3>
+<label>添加方式<select id="project-source"><option value="local">已有本地目录</option><option value="git">Git 仓库链接</option></select></label>
+<label>项目名称<input id="project-name" maxlength="120" placeholder="例如：FlowERP"></label>
+<label id="project-url-field" hidden>Git 仓库链接<input id="project-url" placeholder="https://github.com/组织/仓库.git"></label>
+<label><span id="project-root-label">本地目录</span><input id="project-root" placeholder="D:\work\my-project"></label>
+<label id="project-init-field"><input id="project-init" type="checkbox" checked>目录尚未使用 Git 时初始化版本管理（不提交或上传文件）</label>
+<p id="project-source-help">填写已有目录的绝对路径。已有 Git 仓库直接登记，不会重建。</p>
+<details><summary>质量检查配置（可稍后填写）</summary><p>从隔离候选目录运行，输出含 summary.decision（pass/block）的 JSON。首项为本机执行程序绝对路径；{report_path} 为报告路径，{workspace} 为候选目录。</p><label>命令参数（JSON 数组）<textarea id="project-eval" placeholder='["D:/project/.venv/Scripts/python.exe", "check.py"]'></textarea></label></details>
+<label><input id="project-default" type="checkbox">设为新事项的默认项目</label>
+<button type="button" id="project-register">添加项目</button><button type="button" id="project-new" hidden>返回添加项目</button><p id="project-status" role="status" aria-live="polite"></p></details>
 <p id="initiative-status" class="hint" role="status"></p>
 <div class="initiative-layout"><section id="initiative-directory"><h3>选择一项交付，继续推进</h3><div id="initiative-list"></div></section><section id="initiative-editor" hidden>
 <button class="text-button" id="back-to-initiatives">← 返回事项列表</button><h2 id="initiative-title">新事项</h2><details id="initiative-contract" open><summary>原始需求与项目目标</summary><form id="initiative-form"><label>所属项目<select id="init-project"></select></label>
@@ -40,18 +50,30 @@
 <label>本次不做<textarea id="init-nongoals" rows="2" maxlength="600" placeholder="每行一项"></textarea></label>
 <label>验收标准<textarea id="init-acceptance" rows="2" maxlength="1000" placeholder="每行一项，要能观察或检查"></textarea></label>
 <label>已有证据<textarea id="init-evidence" rows="2" maxlength="1000" placeholder="保留实际观察或反馈，每行一条"></textarea></label>
-<label>影响范围<select id="init-area"><option value="">局部界面或文案</option value="inventory">库存数量与可用量</option><option value="money">金额或财务</option><option value="order">订单</option><option value="purchase">采购</option><option value="auth">权限或安全</option></select></label>
+<label>影响范围<select id="init-area"><option value="">局部界面或文案</option><option value="inventory">库存数量与可用量</option><option value="money">金额或财务</option><option value="order">订单</option><option value="purchase">采购</option><option value="auth">权限或安全</option></select></label>
 <label>验收负责人<input id="init-reviewer" maxlength="80" placeholder="涉及库存、金额等关键规则时必须填写"></label>
  </details><button id="save-initiative" class="primary" type="submit">保存事项</button></form></details>
 <section id="initiative-work" hidden aria-label="事项持续交付">
+<details id="v0-entry"><summary>使用已确认的建设合同（工作台 V0）</summary>
+<p class="hint">保存本事项后，粘贴已确认的六段 Spec。检查通过仍待实际审核者确认；编码须使用已准备好的隔离候选目录。</p>
+<label for="v0-spec">本次 Spec 全文</label><textarea id="v0-spec" rows="12" maxlength="24000"></textarea>
+<label for="v0-mode">执行方式</label><select id="v0-mode"><option value="verify">仅复验，不调用 Codex 编码</option><option value="codex">调用 Codex 编码</option></select>
+<label for="v0-workspace">工作目录绝对路径（编码时为隔离候选）</label><input id="v0-workspace" placeholder="填写已准备好的目录">
+<label for="v0-files">允许修改的文件（相对候选目录，每行一个；不能填目录）</label><textarea id="v0-files" rows="4"></textarea>
+<label for="v0-timeout">编码超时（秒）</label><input id="v0-timeout" type="number" min="30" max="3600" value="900">
+<label><input id="v0-confirmed" type="checkbox">我已核对本次合同、工作目录、逐文件范围和执行方式</label>
+<button id="v0-submit" class="primary" type="button">保存合同并启动所选操作</button>
+<button id="v0-open-task" type="button" hidden>到交付记录查看本次任务</button><p id="v0-status" role="status"></p>
+</details>
 <div class="iw-context"><p id="iw-project"></p><span id="iw-stage" role="status"></span></div>
 <ol id="iw-stage-track" class="stage-track" aria-label="当前交付阶段"></ol>
 <nav class="iw-tabs" aria-label="事项工作区"><button data-iw-pane="action">推进交付</button><button data-iw-pane="plan">方案与范围</button><button data-iw-pane="result">结果与证据</button></nav>
 <p id="iw-error" role="alert"></p>
+<div id="iw-source-check" hidden><details><summary id="iw-source-summary">查看项目文件差异</summary><p>只核对上方登记项目目录中的文件，不扫描工作台或其他项目。历史检测记录仍保留在讨论记录中。</p><ul id="iw-source-files"></ul></details><button id="iw-recheck" class="secondary" type="button">保留回答，重新核对项目</button></div>
 <div id="iw-pane-action">
 <section class="next-decision"><span class="eyebrow" id="iw-next-owner">下一步</span><h3 id="iw-next-title"></h3><p id="iw-next-description"></p><ol id="iw-questions"></ol><p id="iw-live-status" role="status" aria-live="polite"></p><div class="activity-line" id="iw-live-output"></div><button id="iw-primary-next" class="primary" hidden>查看下一步</button></section>
 <details id="iw-findings"><summary>本轮调研结论</summary><p id="iw-latest-answer"></p></details>
-<div class="iw-composer"><label for="iw-message" id="iw-message-label">补充需求或回答问题</label><textarea id="iw-message" rows="4" maxlength="10000" placeholder="说清你想解决的问题，或在这里回答上面的问题。"></textarea><div class="composer-actions"><button id="iw-discuss" class="primary" type="button">让 Codex 开始调研</button><button id="iw-cancel" class="secondary" type="button" hidden>停止本轮</button><span id="iw-composer-hint" class="hint"></span></div></div>
+<div class="iw-composer"><div id="iw-answers"></div><button id="iw-defer-people" class="secondary" type="button" hidden>人员待定，先完善方案</button><label for="iw-message" id="iw-message-label">补充需求或回答问题</label><textarea id="iw-message" rows="4" maxlength="10000" placeholder="说清你想解决的问题，或在这里回答上面的问题。"></textarea><div class="composer-actions"><button id="iw-discuss" class="primary" type="button">让 Codex 开始调研</button><button id="iw-cancel" class="secondary" type="button" hidden>停止本轮</button><span id="iw-composer-hint" class="hint"></span></div></div>
 <details id="iw-discussion-history"><summary>讨论记录 <span id="iw-message-count"></span></summary><div id="iw-messages" aria-label="事项讨论记录"></div></details>
 </div>
 <div id="iw-pane-plan" hidden><p id="iw-plan-empty" class="workspace-empty">需求还在澄清。形成方案后，你将在这里确认目标、范围与验收条件。</p>

@@ -11,14 +11,10 @@
 !agent/**
 !eval/
 !eval/**
-!flowerp/
-!flowerp/**
 !workbench/
 !workbench/**
 !workbench_web/
 !workbench_web/**
-!web/
-!web/**
 !harness_web/
 !harness_web/**
 !tests/

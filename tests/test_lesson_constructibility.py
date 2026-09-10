@@ -1,4 +1,5 @@
 from __future__ import annotations
+from workbench.external_project import flowerp_root
 
 import time
 import tempfile
@@ -106,7 +107,7 @@ class LessonConstructibilityTests(unittest.TestCase):
             root = Path(temporary)
             target = root / "flowerp"
             target.mkdir()
-            (target / "service.py").write_text((source / "flowerp" / "service.py").read_text(encoding="utf-8"), encoding="utf-8")
+            (target / "service.py").write_text(( flowerp_root() / "flowerp/service.py").read_text(encoding="utf-8"), encoding="utf-8")
             result = apply_student_start(root, 4)
             self.assertIn("flowerp/service.py", result["applied_overlays"])
             self.assertIn('["sku,name,available"]', _read_text(root / "flowerp" / "service.py"))
@@ -145,7 +146,7 @@ class LessonConstructibilityTests(unittest.TestCase):
             target = root / "flowerp"
             target.mkdir()
             (target / "service.py").write_text(
-                (source / "flowerp" / "service.py").read_text(encoding="utf-8"), encoding="utf-8",
+                ( flowerp_root() / "flowerp/service.py").read_text(encoding="utf-8"), encoding="utf-8",
             )
             (root / "docs" / "courses" / "labs" / "baselines").mkdir(parents=True)
             (root / "docs" / "courses" / "labs" / "baselines" / "PROGRESSION.json").write_text("{}", encoding="utf-8")

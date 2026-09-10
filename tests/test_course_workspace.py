@@ -1,4 +1,5 @@
 from __future__ import annotations
+from workbench.external_project import flowerp_root
 
 import json
 import subprocess
@@ -118,7 +119,7 @@ class CourseWorkspaceTests(unittest.TestCase):
                     dest.mkdir(parents=True)
                     (dest / "flowerp").mkdir()
                     (dest / "flowerp" / "service.py").write_text(
-                        (source / "flowerp" / "service.py").read_text(encoding="utf-8"), encoding="utf-8",
+                        (flowerp_root() / "flowerp/service.py").read_text(encoding="utf-8"), encoding="utf-8",
                     )
                     (dest / "docs" / "courses" / "labs" / "baselines").mkdir(parents=True)
                     (dest / "docs" / "courses" / "labs" / "baselines" / "PROGRESSION.json").write_text("{}", encoding="utf-8")

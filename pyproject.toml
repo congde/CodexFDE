@@ -17,7 +17,7 @@ dev = [
 ]
 
 [project.scripts]
-flowerp = "main:main"
+codexfde = "main:main"
 flowerp-workbench = "workbench.cli:main"
 harness-workbench = "workbench.harness_cli:main"
 
@@ -26,7 +26,7 @@ py-modules = ["main"]
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["flowerp*", "workbench*", "eval*", "agent*", "harness_web*"]
+include = ["workbench*", "eval*", "agent*", "harness_web*"]
 
 [tool.setuptools.package-data]
 "*" = ["*.html", "*.css", "*.js"]

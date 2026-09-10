@@ -1,6 +1,7 @@
 """Validate the L05 teaching Eval against isolated, explicit service defects."""
 import json
 from pathlib import Path
+from workbench.external_project import flowerp_root
 import shutil
 import subprocess
 import sys
@@ -17,7 +18,7 @@ class ReceivingEvalTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory(prefix='l05-eval-test-')
         self.addCleanup(self.temp.cleanup)
         self.candidate = Path(self.temp.name) / 'candidate'
-        shutil.copytree(ROOT / 'flowerp', self.candidate / 'flowerp',
+        shutil.copytree(flowerp_root() / 'flowerp', self.candidate / 'flowerp',
                         ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
         self.source = self.candidate / 'flowerp/service.py'
 

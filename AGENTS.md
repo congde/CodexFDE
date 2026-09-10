@@ -2,7 +2,7 @@
 
 ## 项目目标
 
-这是 Codex AI 工程交付行动营的单一主线仓库。全课程统一使用一句建设主线：**用 Codex，搭建个人 AI 研发工作台；通过工作台组织人与 AI 协同，持续开发 FlowERP。** Codex 是 AI 开发伙伴，个人工作台是第一个建设成果和后续协同阵地，FlowERP 是持续增长的客户产品。三者不是并列的三套业务系统，也不得把个人工作台讲成 FlowERP 的员工门户。
+这是 Codex AI 工程交付行动营的工作台与课程仓库。FlowERP 客户产品独立维护于 https://github.com/congde/flowERP.git；课程建设主线保持不变。全课程统一使用一句建设主线：**用 Codex，搭建个人 AI 研发工作台；通过工作台组织人与 AI 协同，持续开发 FlowERP。** Codex 是 AI 开发伙伴，个人工作台是第一个建设成果和后续协同阵地，FlowERP 是持续增长的客户产品。三者不是并列的三套业务系统，也不得把个人工作台讲成 FlowERP 的员工门户。
 
 课程遵循明确的先后关系：先在 L01～L04 构建一个类似 DeepSeek Harness 的**个人研发自动化工作台 V0**，再从 L05 起持续通过这套工作台交付电商 FlowERP。Spec、Eval、Harness、Loop、Graph、API、Web 与反馈闭环不是孤立的工具目录，而是在一次次 ERP 需求、失败和验收中被迫升级的可复用能力。
 
@@ -50,11 +50,11 @@
 
 ## 目录边界
 
-- `flowerp/`：ERP 领域模型、SQLite 持久化和业务服务。
+- 独立 FlowERP 仓库的 `flowerp/`：ERP 领域模型、SQLite 持久化、业务服务与客户 HTTP API。本仓库不保留或导入该包。
 - `workbench/`：Spec、任务 API、CLI、摘要和反馈。
-- `eval/`：唯一质量入口；Hook、CI、Loop、Graph 都复用它。
+- `eval/`：工作台质量入口；Hook、CI、Loop、Graph 都复用它。ERP 业务 Eval 属于独立 FlowERP 仓库，课程显式用例通过进程边界委托执行；默认工作台绿灯不证明 ERP 业务通过。
 - `agent/`：失败任务映射、有界 Loop 和显式状态图（课程跟跑必做）。
-- `web/`：无密钥的 FlowERP **客户项目**界面（课程跟跑必做，默认 :8000，库为 `flowerp.db`）。
+- 独立 FlowERP 仓库的 `web/`：无密钥的 FlowERP **客户项目**界面（课程跟跑必做，默认 :8000，库为 `flowerp.db`）。
 - `workbench_web/`：跟跑必做的最小个人研发工作台驾驶舱（默认 :8001，库为 `workbench.db`）。
 - `harness_web/`：可选的完整 Harness 平台驾驶舱（非大纲 L01～L16 通过标准）。对照 DeepSeek Harness 的 Session/Profile/Plugin 与开源 Codex Harness 的 thread、event stream、approval、interrupt；不得声称产品等价或接入官方 app-server。
 - `docs/courses/`：L00～L16 学生讲义、课程蓝图和统一工作区。
@@ -78,7 +78,7 @@
 
 开课前检查：`python -X utf8 -m workbench.cli course-status`。`course_ready: true` 只证明合同有效且线性标签存在；`baseline_semantics` 为 `progression_gate` 时，不能据此声称学员已经亲手构造本讲能力。可构造性看隔离工作区执行前红、范围内 Diff、执行后绿。
 
-跟跑必做工作台：`python -X utf8 -m workbench.cli serve-workbench`（:8001）。客户项目：`python -X utf8 -m workbench.cli serve`（:8000）。两套数据目录不得混用。
+跟跑必做工作台：`python -X utf8 -m workbench.cli serve-workbench`（:8001）。客户项目：`python -X utf8 -m workbench.cli serve`（:8000）。两套数据目录不得混用。兼容的 `workbench.cli serve/demo/init/backup` 等客户命令由 `workbench/external_project.py` 转交独立项目虚拟环境执行。通过项目登记或 `FLOWERP_PROJECT_ROOT` 指定客户仓库。L04+ 本地课程快照可组合两个仓库的源文件，但必须记录来源与哈希，不在控制仓库恢复重复业务目录。
 
 工作台唯一用户入口是 `http://127.0.0.1:8001/`（自定义端口时使用对应根路径 `/`）。真实需求从首页的“事项与决策”开始；调研、执行、返工与验收应在同一工作台内组织，不另设独立日常研发页面。后端已有能力与首页尚未贯通的交互必须如实区分。
 

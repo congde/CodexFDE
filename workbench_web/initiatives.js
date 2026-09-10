@@ -117,15 +117,79 @@ async function loadInitiativeProjects() {
     const select=initiativeInput('project');
     const selected=currentInitiative ? currentInitiative.project_id : select.value || body.default_project;
     select.replaceChildren();
-    body.items.forEach(project=>{const option=document.createElement('option');option.value=project.id;option.textContent=project.name;select.append(option);});
-    select.value=selected;
+    body.items.forEach(project=>{const option=document.createElement('option');option.value=project.id;option.textContent=project.name+' · '+project.root_path;select.append(option);});
+    select.value=body.items.some(p=>p.id===selected) ? selected : body.default_project;
+    renderRegisteredProjects(body);
   } catch(error){show('project-status',error.message);}
 }
-document.getElementById('project-register').onclick=async function() {
-  this.disabled=true;
+let projectEditing=null, projectPending=false, projectRegistrationAvailable=true;
+function projectField(id) {return document.getElementById('project-'+id);}
+function projectSourceView() {
+  const git=projectField('source').value==='git';
+  projectField('url-field').hidden=!git || !!projectEditing;
+  projectField('init-field').hidden=git || !!projectEditing;
+  projectField('root-label').textContent=git ? '克隆到本地目录（目录须尚不存在）' : '本地目录';
+  projectField('source-help').textContent=projectEditing ? '项目归属目录固定；配置质量检查不会移动已有事项。' : git ? '使用本机 Git 的现有登录。支持 HTTPS、git@host:path 或 ssh://git@host/path；请勿把令牌填入链接。克隆不会覆盖已有目录。' : '填写已有目录的绝对路径。已有 Git 仓库直接登记，不会重建。';
+}
+function editRegisteredProject(project=null) {
+  if(projectPending)return;
+  projectEditing=project;
+  projectField('source').value='local';
+  projectField('name').value=project?.name || '';
+  projectField('root').value=project?.root_path || '';
+  projectField('url').value='';
+  projectField('eval').value=project?.eval_command?.length ? JSON.stringify(project.eval_command,null,2) : '';
+  projectField('default').checked=false;
+  ['source','name','root'].forEach(id=>projectField(id).disabled=!!project);
+  projectField('form-title').textContent=project ? '配置项目：'+project.name : '添加项目';
+  projectField('register').textContent=project ? '保存项目配置' : '添加项目';
+  projectField('new').hidden=!project;
+  projectSourceView();
+}
+function renderRegisteredProjects(body) {
+  projectRegistrationAvailable=!!body.registration?.sources?.includes('git');
+  projectField('register').disabled=projectPending || !projectRegistrationAvailable;
+  if(!projectRegistrationAvailable)show('project-status','当前服务尚未加载新版添加项目功能，请重启工作台服务后刷新页面。');
+  const list=projectField('list');list.replaceChildren();
+  body.items.forEach(project=>{
+    const row=document.createElement('article');
+    const name=document.createElement('strong');name.textContent=project.name+(project.id===body.default_project?'（默认）':'');
+    const detail=document.createElement('p');detail.textContent=project.root_path+' · '+(project.eval_command.length?'已配置检查命令，执行前仍需检查环境':'可调研 · 执行前待配置质量检查');
+    const button=document.createElement('button');button.type='button';button.className='text-button';button.textContent='配置项目';button.disabled=projectPending || !projectRegistrationAvailable;
+    button.onclick=()=>editRegisteredProject(project);row.append(name,detail,button);list.append(row);
+  });
+}
+function projectRegistrationPayload() {
+  const raw=projectField('eval').value.trim();
+  let command=[];
+  if(raw){try{command=JSON.parse(raw);}catch(_){throw new Error('质量检查命令不是有效的 JSON 数组；也可以先留空。');}}
+  if(!Array.isArray(command) || command.some(p=>typeof p!=='string'||!p.trim()))throw new Error('质量检查命令须为字符串参数数组。');
+  return {actor:actorName(),name:projectField('name').value.trim(),source_type:projectField('source').value,
+    root_path:projectField('root').value.trim(),git_url:projectField('url').value.trim(),
+    initialize_git:projectField('init').checked,make_default:projectField('default').checked,eval_command:command};
+}
+projectField('source').onchange=projectSourceView;
+projectField('new').onclick=()=>editRegisteredProject();
+document.getElementById('open-project-registration').onclick=()=>{
+  workspaceView('decision');projectField('registration').open=true;
+  projectField('registration').scrollIntoView({behavior:'smooth'});loadInitiativeProjects();
+};
+projectField('register').onclick=async function() {
+  if(projectPending || !projectRegistrationAvailable)return;
+  let payload;
+  try{payload=projectRegistrationPayload();if(!payload.actor)throw new Error('请先填写上方的操作署名。');}
+  catch(error){show('project-status',error.message);return;}
+  projectPending=true;this.disabled=true;
+  ['source','name','root','url','eval','init','default'].forEach(id=>projectField(id).disabled=true);
+  show('project-status',projectEditing?'正在保存配置…':payload.source_type==='git'?'正在克隆并添加项目，请勿重复提交；较大仓库可能需要两分钟。':'正在检查本地目录并添加项目…');
   try {
-    const project=await api('/api/v1/projects',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({actor:actorName(),name:document.getElementById('project-name').value.trim(),root_path:document.getElementById('project-root').value.trim(),eval_command:JSON.parse(document.getElementById('project-eval').value)})});
+    const endpoint=projectEditing ? '/api/v1/projects/'+encodeURIComponent(projectEditing.id)+'/settings' : '/api/v1/projects';
+    const project=await api(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
     await loadInitiativeProjects();if(!currentInitiative)initiativeInput('project').value=project.id;
-    show('project-status','已登记项目：'+project.name);
-  } catch(error){show('project-status','登记失败：'+error.message);} finally{this.disabled=false;}
+    show('project-status','已保存项目：'+project.name+' · '+project.root_path+(project.eval_command.length?'':'。可以开始调研；代码交付前请配置质量检查命令。'));
+    if(typeof refreshProjectHome==='function')refreshProjectHome();
+  } catch(error){show('project-status','添加或配置失败：'+error.message+'。若连接中断，请先刷新项目列表核对结果。');}
+  finally{projectPending=false;this.disabled=!projectRegistrationAvailable;
+    ['source','name','root','url','eval','init','default'].forEach(id=>projectField(id).disabled=!!projectEditing && ['source','name','root'].includes(id));
+    projectField('list').querySelectorAll('button').forEach(b=>b.disabled=!projectRegistrationAvailable);}
 };

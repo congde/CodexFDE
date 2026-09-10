@@ -277,7 +277,8 @@ function actorName() {
   const input = document.getElementById('task-actor');
   const name = input.value.trim();
   if (!name || name.length > 80 || name.toLowerCase().startsWith('agent:')) {
-    input.focus();
+    input.scrollIntoView({block:'center'});
+    input.focus({preventScroll:true});
     throw new Error(!name ? '请先填写你的姓名或课堂昵称，再开始交付。' :
       name.length > 80 ? '署名请控制在 80 个字以内。' : '不能使用 agent: 开头的执行器署名，请填写你的姓名或课堂昵称。');
   }
@@ -454,8 +455,8 @@ function renderEvidence(detail) {
   const owner = detail.status && detail.status.owner;
   show("evidence-owner", ((detail.status && detail.status.title) || "") + " / " + ownerKind(owner && owner.id) + " · " + ((owner && owner.label) || ""));
   const spec = Object.assign({}, detail.spec || {}, (detail.spec && detail.spec.content) || {});
-  show("evidence-spec", ['goal','non_goals','constraints','acceptance','done'].map(function(key,index) {
-    return spec[key] ? ['目标','本次不做','约束','验收用例','完成定义'][index] + '\n' + spec[key] : '';
+  show("evidence-spec", spec.text || ['source','goal','non_goals','constraints','acceptance','done'].map(function(key,index) {
+    return spec[key] ? ['来源','目标','本次不做','约束','验收用例','完成定义'][index] + '\n' + spec[key] : '';
   }).filter(Boolean).join('\n\n') || spec.title || spec.path || '尚无 Spec');
   show("evidence-spec-summary", (spec.goal || spec.title || "尚无任务约定").split("\n\n")[0]);
   show("evidence-scope", ((detail.policy && detail.policy.write_scope) || []).join("、") || "未声明写集");
@@ -488,7 +489,37 @@ function renderEvidence(detail) {
   renderCases(evalView.cases);
   renderActions(detail);
   renderEvents(detail.events);
+  renderV0Evidence(detail);
   renderDigest(detail);
+}
+
+function renderV0Evidence(detail) {
+  let panel=document.getElementById('v0-evidence-history');
+  if(!panel){panel=document.createElement('details');panel.id='v0-evidence-history';document.getElementById('diff-card').appendChild(panel);}
+  panel.replaceChildren();
+  const heading=document.createElement('summary');heading.textContent='每轮调用、完整输出与检查命令';panel.appendChild(heading);
+  const overview=document.createElement('pre');
+  overview.textContent=JSON.stringify({contract_sha256:(detail.spec || {}).sha256,
+    authorization:detail.policy, summary:detail.delivery_summary}, null, 2);
+  panel.appendChild(overview);
+  (detail.events || []).forEach(event=>{
+    const evidence=event.evidence || {};
+    if(!evidence.attempt_id && !evidence.validation)return;
+    const row=document.createElement('section'), text=document.createElement('pre');
+    text.textContent=JSON.stringify({event:event.id, at:event.created_at, attempt:evidence.attempt_id,
+      invocation:evidence.invocation, returncode:evidence.returncode, timed_out:evidence.timed_out,
+      provenance:evidence.provenance, validation:evidence.validation},null,2);
+    row.appendChild(text);
+    ['stdout','stderr','diff'].forEach(key=>{
+      if(!(evidence.artifacts || {})[key])return;
+      const link=document.createElement('a');
+      link.href='/api/v1/tasks/'+encodeURIComponent(detail.task_id)+'/artifacts/'+event.id+'/'+key;
+      link.target='_blank';link.rel='noopener';link.textContent='查看完整 '+key+'　';row.appendChild(link);
+    });
+    panel.appendChild(row);
+  });
+  const summary=detail.delivery_summary;
+  if(summary)show('evidence-review-note', ((detail.review || {}).note || '尚无审核理由') + '\n剩余风险：' + summary.remaining_risks.join('；'));
 }
 
 function renderEvents(events) {

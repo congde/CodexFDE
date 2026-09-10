@@ -4,9 +4,9 @@ import json
 import os
 from pathlib import Path
 
-DIRECTORIES = ('workbench', 'eval', 'agent', 'tests', '.codex')
+DIRECTORIES = ('workbench', 'workbench_web', 'eval', 'agent', 'tests', '.codex')
 ROOT_FILES = ('AGENTS.md', 'FDE_SPEC.md', 'pyproject.toml', 'main.py')
-SUFFIXES = {'.py', '.json', '.toml', '.md', '.yaml', '.yml', '.ps1', '.sh'}
+SUFFIXES = {'.py', '.json', '.toml', '.md', '.yaml', '.yml', '.ps1', '.sh', '.html', '.js', '.css'}
 
 
 def control_source_snapshot(repository):

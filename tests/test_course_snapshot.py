@@ -4,6 +4,7 @@ import json
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 from workbench.course_snapshot import prepare_source_snapshot
@@ -13,6 +14,27 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class SourceSnapshotTests(unittest.TestCase):
+    def test_external_product_is_copied_only_to_candidate_with_provenance(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / 'controller'; source.mkdir()
+            self.source(source)
+            product = Path(directory) / 'product'
+            for name, content in {'flowerp/__init__.py': '', 'flowerp/server.py': '# server',
+                                  'flowerp/service.py': '# unchanged product', 'eval/cases.py': '# product checks',
+                                  'web/index.html': '<title>ERP</title>', 'flowerp/auth.json': 'private'}.items():
+                path = product / name; path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(content, encoding='utf-8')
+            with patch('workbench.external_project.flowerp_root', return_value=product):
+                result = prepare_source_snapshot(source, source / '.runtime', 5)
+            candidate = Path(result['path'])
+            self.assertFalse((source / 'flowerp').exists())
+            self.assertFalse((candidate / 'flowerp/auth.json').exists())
+            self.assertEqual('# product checks', (candidate / 'eval/erp_cases.py').read_text(encoding='utf-8'))
+            self.assertEqual('# uncommitted source\n', (candidate / 'eval/harness.py').read_text(encoding='utf-8'))
+            self.assertEqual(str(product), result['external_product_source']['root'])
+            self.assertIn('flowerp/service.py', result['external_product_source']['manifest'])
+            self.assertEqual('# unchanged product', (product / 'flowerp/service.py').read_text(encoding='utf-8'))
+
     def source(self, root):
         for name in ("workbench/__init__.py", "workbench/cli.py", "eval/__init__.py", "eval/harness.py"):
             target = root / name

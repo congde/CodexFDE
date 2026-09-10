@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+from .codex_command import resolve_codex_command
 import subprocess
 from pathlib import Path
 
@@ -70,8 +71,7 @@ class CodexLLMAdapter:
     ) -> None:
         self.runtime = runtime
         self.repository_root = Path(repository_root).resolve()
-        command = executable or os.getenv("FLOWERP_CODEX_COMMAND", "codex")
-        self.executable = shutil.which(command) or command
+        self.executable = resolve_codex_command(executable)
         self.provider = provider
 
     def available(self) -> bool:

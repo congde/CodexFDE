@@ -10,17 +10,50 @@ function iwList(id, values) {
   iw(id).replaceChildren();
   (values || []).forEach(text=>{const item=document.createElement('li');item.textContent=text;iw(id).appendChild(item);});
 }
+function iwDiscussionText(extra='') {
+  const answers=[...iw('answers').querySelectorAll('textarea')].filter(el=>el.value.trim())
+    .map(el=>'问题：'+el.dataset.question+'\n回答：'+el.value.trim());
+  return [...answers,iw('message').value.trim(),extra].filter(Boolean).join('\n\n');
+}
+function renderIwAnswers(data, busy) {
+  const questions=data.stage==='clarifying' ? data.proposal?.questions || [] : [];
+  const signature=JSON.stringify([data.id,questions]);
+  const box=iw('answers');
+  // Polling must not overwrite an answer while the user is typing.
+  if(box.dataset.questions!==signature && !busy) {
+    box.replaceChildren();box.dataset.questions=signature;
+    questions.forEach((question,index)=>{
+      const label=document.createElement('label');label.textContent=question;label.htmlFor='iw-answer-'+index;
+      const input=document.createElement('textarea');input.id=label.htmlFor;input.rows=2;input.maxLength=3000;
+      input.dataset.question=question;input.placeholder='填写这一项的回答；也可在下方补充统一说明。';
+      box.append(label,input);
+    });
+  }
+  const peopleOnly=questions.length>0 && questions.every(q=>/复验者|验收负责人|验收人/.test(q) && /谁|姓名|人员/.test(q));
+  iw('defer-people').hidden=!peopleOnly || busy;
+  iw('defer-people').disabled=initiativeWorkPending || !data.enabled;
+}
 function renderInitiativeWork(data) {
   if(initiativeWork && initiativeWork.active_task_id!==data.active_task_id) {
     iw('preview-frame').hidden=true;iw('preview-frame').removeAttribute('src');iw('preview-link').hidden=true;iw('preview-status').textContent='';
   }
   initiativeWork=data;
+  document.getElementById('v0-submit').disabled=initiativeWorkPending || !['idle','rework','failed','cancelled','interrupted'].includes(data.stage);
+  document.getElementById('v0-open-task').hidden=!data.task;
+  document.getElementById('v0-status').textContent=data.v0 ? '本次任务：' + (data.active_task_id || '') + ' · ' + ((data.task || {}).status || data.stage) + '。原始合同、每轮输出和人工确认请到交付记录查看。' : '';
   if(data.stage!=='idle')document.getElementById('initiative-decision').hidden=true;
   iw('stage').textContent=iwStages[data.stage] || data.stage;
   iw('error').textContent=data.error || data.warning || (!data.enabled ? '当前服务尚未开启 Codex 执行。请保留原运行目录，以 --enable-code-execution 启动工作台。' : '');
   const busy=['researching','queued','executing','cancelling','integrating'].includes(data.stage);
   const complete=['integrated','released','observed'].includes(data.stage);
-  iw('project').textContent=data.project ? '项目：'+data.project.name : '项目：FlowERP';
+  renderIwAnswers(data,busy);
+  const check=data.source_check;
+  iw('source-check').hidden=!check || check.status==='current';
+  iw('source-summary').textContent='查看所属项目的文件差异（'+(check?.files.length || 0)+' 项）';
+  iwList('source-files',(check?.files || []).map(f=>({added:'新纳入',removed:'不再纳入',modified:'内容修改'}[f.kind])+ '：'+f.path));
+  iw('recheck').hidden=check?.status==='current';
+  iw('recheck').disabled=busy || initiativeWorkPending || !data.enabled;
+  iw('project').textContent=data.project ? '项目：'+data.project.name+' · '+data.project.root_path : '项目：FlowERP';
   iw('cancel').hidden=!['researching','queued','executing'].includes(data.stage);
   iw('cancel').disabled=initiativeWorkPending;
   iw('delivery').hidden=!complete;
@@ -63,8 +96,8 @@ function renderInitiativeWork(data) {
     iwList('acceptance',proposal.acceptance);iwList('nongoals',proposal.non_goals);iwList('steps',proposal.steps);
     iw('scope').textContent='调研依据：\n'+proposal.sources.join('\n')+'\n\n建议修改范围：\n'+proposal.write_scope.join('\n');
     iw('confirm').hidden=data.stage!=='ready';
-    iw('confirm').disabled=initiativeWorkPending || !data.prd_confirmed;
-    iw('execute').hidden=data.stage!=='confirmed';iw('execute').disabled=initiativeWorkPending || !data.enabled;
+    iw('confirm').disabled=initiativeWorkPending || !data.prd_confirmed || !!(check && check.status!=='current');
+    iw('execute').hidden=data.stage!=='confirmed';iw('execute').disabled=initiativeWorkPending || !data.enabled || !!(check && check.status!=='current');
     iw('reviewer').disabled=data.stage!=='ready';
     if(data.reviewer && data.stage!=='ready') iw('reviewer').value=data.reviewer;
   }
@@ -98,6 +131,7 @@ function renderInitiativeWork(data) {
   });
   }
   renderDeliveryWorkspace(data);
+  if(data.v0){['accept','integrate','preview','execute','discuss'].forEach(id=>iw(id).hidden=true);}
 }
 async function refreshInitiativeWork() {
   if(!initiativeWorkId)return;
@@ -127,7 +161,7 @@ async function initiativeWorkAction(action, extra={}) {
     const data=await api('/api/v1/initiatives/'+itemId+'/workflow/'+action,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({actor:actorName(),revision:initiativeWork.revision,...extra})});
     if(itemId!==initiativeWorkId)return;
     renderInitiativeWork(data);
-    if(action==='discuss')iw('message').value='';
+    if(action==='discuss'){iw('message').value='';iw('answers').querySelectorAll('textarea').forEach(el=>el.value='');}
     if(action==='confirm') {
       currentInitiative=await api('/api/v1/initiatives/'+itemId);
       document.getElementById('initiative-decision').hidden=true;
@@ -136,9 +170,22 @@ async function initiativeWorkAction(action, extra={}) {
   finally{initiativeWorkPending=false;if(initiativeWork)renderInitiativeWork(initiativeWork);if(actionError)iw('error').textContent=actionError;}
 }
 function initInitiativeWork() {
+  document.getElementById('v0-submit').onclick=async()=>{
+    const value=id=>document.getElementById(id).value;
+    if(!document.getElementById('v0-confirmed').checked){document.getElementById('v0-status').textContent='请先核对并确认本次合同和执行参数。';return;}
+    await initiativeWorkAction('v0', {spec_text:value('v0-spec'), execution_mode:value('v0-mode'),
+      workspace_path:value('v0-workspace').trim(), write_scope:value('v0-files').split(/\r?\n/).map(v=>v.trim()).filter(Boolean),
+      execution_timeout_seconds:Number(value('v0-timeout')), confirmed:true});
+    document.getElementById('v0-confirmed').checked=false;
+  };
+  document.getElementById('v0-open-task').onclick=()=>{
+    if(initiativeWork && initiativeWork.task)loadDetail(initiativeWork.task.id);
+  };
   document.querySelectorAll('[data-iw-pane]').forEach(b=>b.onclick=()=>selectIwPane(b.dataset.iwPane));
   iw('primary-next').onclick=()=>selectIwPane(deliveryStageView(initiativeWork.stage).pane);
-  iw('discuss').onclick=()=>initiativeWorkAction('discuss',{text:iw('message').value.trim() || (initiativeWork && !initiativeWork.messages.length && currentInitiative && currentInitiative.raw_signal) || ''});
+  iw('discuss').onclick=()=>initiativeWorkAction('discuss',{text:iwDiscussionText() || (initiativeWork && !initiativeWork.messages.length && currentInitiative && currentInitiative.raw_signal) || ''});
+  iw('recheck').onclick=()=>initiativeWorkAction('discuss',{text:iwDiscussionText('请依据最新项目文件重新核对既有方案，保留此前回答与已确定范围；仅询问因变化新增的必要问题。')});
+  iw('defer-people').onclick=()=>initiativeWorkAction('discuss',{text:iwDiscussionText('独立复验者和最终人工验收负责人暂待确认。请先完善产品与技术方案，在相应确认和人工接受决定前落实真实人员及职责，不把人员待定作为重复澄清问题。')});
   iw('confirm').onclick=()=>initiativeWorkAction('confirm',{reviewer:iw('reviewer').value.trim()});
   iw('confirm-prd').onclick=()=>initiativeWorkAction('confirm-prd',{success_metric:iw('prd-metric').value.trim()});
   iw('cancel').onclick=()=>initiativeWorkAction('cancel');

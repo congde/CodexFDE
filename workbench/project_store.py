@@ -34,6 +34,9 @@ class ProjectStore:
                   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                   PRIMARY KEY(operation,idempotency_key)
                 );
+                CREATE TABLE IF NOT EXISTS workbench_settings(
+                  key TEXT PRIMARY KEY, value TEXT NOT NULL
+                );
                 """
             )
 
@@ -51,7 +54,7 @@ class ProjectStore:
             conn.close()
 
     def create(self, name: str, root_path: str | Path,
-               eval_command: list[str], project_id: str = "") -> dict:
+               eval_command: list[str], project_id: str = "", *, allow_pending_eval=False) -> dict:
         label = name.strip()
         root = Path(root_path).resolve()
         command = [str(part).strip() for part in eval_command if str(part).strip()]
@@ -61,7 +64,7 @@ class ProjectStore:
             raise ValueError("目标项目目录不存在")
         if not (root / ".git").exists():
             raise ValueError("目标项目必须是独立 Git 工作区")
-        if not command:
+        if not command and not allow_pending_eval:
             raise ValueError("项目必须声明 Eval 命令")
         identifier = project_id.strip() or f"PROJECT-{uuid.uuid4().hex[:10].upper()}"
         if not identifier.startswith("PROJECT-"):
@@ -102,6 +105,24 @@ class ProjectStore:
             conn.execute("UPDATE harness_projects SET name=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",
                          (label, project_id))
         return self.get(project_id)
+
+    def set_default(self, project_id: str) -> dict:
+        item = self.get(project_id)
+        with self.connect() as conn:
+            conn.execute("INSERT OR REPLACE INTO workbench_settings VALUES ('default_project', ?)", (project_id,))
+        return item
+
+    def configure(self, project_id: str, command: list[str]) -> dict:
+        self.get(project_id)
+        with self.connect() as conn:
+            conn.execute('UPDATE harness_projects SET eval_command_json=?,updated_at=CURRENT_TIMESTAMP WHERE id=?',
+                         (json.dumps(command, ensure_ascii=False), project_id))
+        return self.get(project_id)
+
+    def default(self) -> dict | None:
+        with self.connect() as conn:
+            row = conn.execute("SELECT value FROM workbench_settings WHERE key='default_project'").fetchone()
+        return self.get(row['value']) if row else None
 
     def idempotent(self, operation: str, key: str, payload: object, producer) -> dict:
         token = key.strip()

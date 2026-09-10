@@ -76,6 +76,11 @@ class TaskStore:
                 "write_scope_json": "TEXT NOT NULL DEFAULT '[]'",
                 "execution_timeout_seconds": "INTEGER NOT NULL DEFAULT 900",
                 "version": "INTEGER NOT NULL DEFAULT 1",
+                "spec_text": "TEXT",
+                "spec_sha256": "TEXT",
+                "workspace_path": "TEXT NOT NULL DEFAULT ''",
+                "authorization_policy": "TEXT NOT NULL DEFAULT 'legacy'",
+                "source_task_id": "TEXT NOT NULL DEFAULT ''",
             })
             self._ensure_columns(conn, "task_events", {
                 "actor": "TEXT NOT NULL DEFAULT 'system'",
@@ -115,6 +120,7 @@ class TaskStore:
         write_scope: list[str] | None = None,
         execution_timeout_seconds: int = 900,
         submission_key: str | None = None,
+        frozen_contract: dict | None = None,
     ) -> dict:
         if not request.strip():
             raise ValueError("任务需求不能为空")
@@ -155,8 +161,15 @@ class TaskStore:
                 "execution_mode,write_scope_json,execution_timeout_seconds) VALUES(?,?,?,?,?,?,?,?,?,?)",
                 (task_id, request.strip(), "queued", requirement_id.strip(), json.dumps(refs, ensure_ascii=False),
                  spec_path.strip(), automation_mode, execution_mode, json.dumps(scopes, ensure_ascii=False),
-                 int(execution_timeout_seconds)),
+                int(execution_timeout_seconds)),
             )
+            if frozen_contract:
+                conn.execute(
+                    "UPDATE tasks SET spec_text=?,spec_sha256=?,spec_json=?,workspace_path=?,"
+                    "authorization_policy=?,source_task_id=? WHERE id=?",
+                    (frozen_contract['text'], frozen_contract['sha256'],
+                     json.dumps(frozen_contract['parsed'], ensure_ascii=False),
+                     frozen_contract['workspace_path'], 'v0', frozen_contract.get('source_task_id', ''), task_id))
             conn.execute(
                 "INSERT INTO task_events(task_id,to_status,detail,actor,evidence_json) VALUES(?,?,?,?,?)",
                 (task_id, "queued", "任务已接收", actor.strip() or "system", json.dumps({
@@ -168,6 +181,41 @@ class TaskStore:
             if submission_key is not None:
                 conn.execute("INSERT INTO task_submissions VALUES(?,?,?)", (submission_key, fingerprint, task_id))
         return self.get(task_id)
+
+    def create_v0(self, request: str, *, spec_path: str, actor: str,
+                  execution_mode: str = 'verify', workspace_path: str = '',
+                  write_scope: list[str] | None = None, execution_timeout_seconds: int = 900,
+                  requirement_id: str = '', business_refs: list[str] | None = None,
+                  source_task_id: str = '') -> dict:
+        """Strict V0 entry; legacy course creators retain their declared contracts."""
+        from .spec import parse_spec
+        from .execution import validate_v0_authorization
+        if not actor.strip():
+            raise ValueError('V0 任务需要实际提交者标识')
+        path = Path(spec_path).resolve()
+        if path.suffix.lower() != '.md':
+            raise ValueError('Spec 必须是 Markdown 文件')
+        try:
+            raw = path.read_text(encoding='utf-8')
+        except (OSError, UnicodeError) as exc:
+            raise ValueError(f'Spec 无法读取：{path}') from exc
+        parsed = parse_spec(raw).as_dict()
+        workspace = validate_v0_authorization(execution_mode, workspace_path, write_scope,
+                                              execution_timeout_seconds)
+        if source_task_id:
+            with self.connect() as conn:
+                has_bootstrap = conn.execute("SELECT 1 FROM sqlite_master WHERE name='bootstrap_tasks'").fetchone()
+                previous = conn.execute('SELECT id FROM tasks WHERE id=?', (source_task_id,)).fetchone()
+                if not previous and has_bootstrap:
+                    previous = conn.execute('SELECT id FROM bootstrap_tasks WHERE id=?', (source_task_id,)).fetchone()
+                if not previous:
+                    raise ValueError('来源任务不存在；请使用同一运行目录中的真实记录')
+        return self.create(request, requirement_id=requirement_id, business_refs=business_refs,
+                           spec_path=str(path), actor=actor, execution_mode=execution_mode,
+                           write_scope=write_scope, execution_timeout_seconds=execution_timeout_seconds,
+                           frozen_contract={'text': raw, 'sha256': hashlib.sha256(raw.encode('utf-8')).hexdigest(),
+                                            'parsed': parsed, 'workspace_path': workspace,
+                                            'source_task_id': source_task_id})
 
     def get(self, task_id: str) -> dict:
         with self.connect() as conn:
@@ -359,6 +407,14 @@ class TaskStore:
         target = "completed" if decision == "approve" else "rework"
         task = self.get(task_id)
         if decision == 'approve' and task.get('requirement_id') == 'WB-L04-BOOTSTRAP':
+            if task.get('authorization_policy') == 'v0':
+                builders = {event['actor'] for event in task['events']
+                            if event.get('from_status') is None or
+                            (event.get('to_status') == 'executing' and
+                             (event.get('evidence') or {}).get('execution_mode') == 'codex')}
+                evaluators = [event['actor'] for event in task['events'] if event.get('to_status') == 'evaluating']
+                if reviewer in builders or not evaluators or evaluators[-1] in builders or evaluators[-1].startswith('agent:'):
+                    raise ValueError('Ticket A 必须由实际非构建者亲自复验并审核；当前仍待独立接受')
             from .bootstrap_source import verify_control_source
             verify_control_source((task.get('result') or {}).get('bootstrap_source'))
         return self.transition(

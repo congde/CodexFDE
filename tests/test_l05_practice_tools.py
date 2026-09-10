@@ -65,6 +65,21 @@ class EvidenceTests(unittest.TestCase):
                               '--name','mismatch','--expect','0','--',sys.executable,'-c','raise SystemExit(2)'],capture_output=True,text=True,encoding='utf8')
             self.assertEqual(p.returncode,1);self.assertEqual(json.loads(p.stdout)['exit_code'],2)
 
+    def test_command_file_preserves_quotes_unicode_and_spaces(self):
+        with tempfile.TemporaryDirectory() as temp:
+            source = 'from pathlib import Path; print(Path("flowerp/service.py")); print("中文 空格")'
+            command = [sys.executable, '-X', 'utf8', '-c', source]
+            args = Path(temp) / 'command.json'
+            args.write_text(json.dumps(command, ensure_ascii=False), encoding='utf-8-sig')
+            result = subprocess.run(
+                [sys.executable, '-X', 'utf8', str(EXAMPLES/'record_command.py'),
+                 '--cwd', temp, '--evidence', temp, '--name', 'quotes', '--expect', '0',
+                 '--command-file', str(args)], capture_output=True, text=True, encoding='utf8')
+            self.assertEqual(result.returncode, 0, result.stderr)
+            record = json.loads(result.stdout)
+            self.assertEqual(record['command'], command)
+            self.assertIn('中文 空格', record['stdout'])
+
     def test_delivery_detects_check_mutation_scope_and_later_edit(self):
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp);candidate=root/'candidate';candidate.mkdir();runtime=root/'runtime';task='TASK-TEST'
@@ -78,6 +93,19 @@ class EvidenceTests(unittest.TestCase):
                       'changed_files':['flowerp/service.py'],'change_manifest':[{'path':'flowerp/service.py','after_sha256':delivery.digest(service)}]}
             ep=runtime/'delivery'/task/'evidence.json';ep.parent.mkdir(parents=True);ep.write_text(json.dumps(evidence),'utf8')
             self.assertEqual(delivery.verify(submission,runtime,allowed,frozen)['status'],'pass')
+            value = json.loads(submission.read_text('utf8'))
+            value['task']['events'] = [{'evidence': {'mode': 'codex_exec', 'attempt_id': 'run123'}}]
+            submission.write_text(json.dumps(value), 'utf8')
+            evidence['attempt_id'] = 'run123'
+            attempt_path = ep.parent/'run123'/'evidence.json'
+            attempt_path.parent.mkdir()
+            attempt_path.write_text(json.dumps(evidence), 'utf8')
+            self.assertEqual(delivery.verify(submission,runtime,allowed,frozen)['source'],str(attempt_path.resolve()))
+            evidence['attempt_id'] = 'wrong'
+            attempt_path.write_text(json.dumps(evidence), 'utf8')
+            self.assertIn('执行记录与任务尝试编号不同',delivery.verify(submission,runtime,allowed,frozen)['issues'])
+            evidence['attempt_id'] = 'run123'
+            attempt_path.write_text(json.dumps(evidence), 'utf8')
             (candidate/delivery.CHECKS[0]).write_bytes(b'# frozen\r\n')
             self.assertEqual(delivery.verify(submission,runtime,allowed,frozen)['status'],'pass')
             (candidate/delivery.CHECKS[0]).write_text('# deleted assertion\n','utf8')

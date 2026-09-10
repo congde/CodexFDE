@@ -8,7 +8,8 @@ import io
 import json
 import sqlite3
 from workbench.desktop import launch, inspect_service, main, wait_for_product_release
-from flowerp.operations import HealthService
+import hashlib
+import os
 
 
 class DesktopLaunchTests(unittest.TestCase):
@@ -35,7 +36,7 @@ class DesktopLaunchTests(unittest.TestCase):
     def test_flowerp_reuse_requires_the_same_data_directory(self):
         with tempfile.TemporaryDirectory() as directory:
             runtime = Path(directory)
-            payload = HealthService(None, runtime).live()
+            payload = {'service':'flowerp', 'status':'ok', 'runtime_id':hashlib.sha256(os.path.normcase(str(runtime.resolve())).encode()).hexdigest()}
             for target, expected in [(runtime, 'same'), (runtime / 'another', 'occupied')]:
                 with patch('workbench.desktop.urllib.request.build_opener') as opener:
                     opener.return_value.open.return_value.__enter__.return_value = io.StringIO(json.dumps(payload))

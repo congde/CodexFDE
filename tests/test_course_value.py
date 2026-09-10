@@ -1,4 +1,5 @@
 from __future__ import annotations
+from workbench.external_project import flowerp_root
 
 import unittest
 from pathlib import Path
@@ -20,7 +21,7 @@ class CourseValueTests(unittest.TestCase):
 
     def test_identity_copy_separates_workbench_from_customer_project(self) -> None:
         workbench = (ROOT / "workbench_web" / "index.html").read_text(encoding="utf-8")
-        erp = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
+        erp = (flowerp_root() / "web/index.html").read_text(encoding="utf-8")
         self.assertIn("个人研发工作台", workbench)
         self.assertIn("客户项目", workbench)
         self.assertIn("客户项目", erp)

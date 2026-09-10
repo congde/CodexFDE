@@ -5,6 +5,7 @@ import mimetypes
 import uuid
 import sys
 from .project_store import ProjectStore
+from .project_registration import ProjectRegistration
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -45,15 +46,18 @@ class WorkbenchApp:
         self.eval_factory = eval_factory
         self.tasks = TaskStore(self.runtime / "workbench.db")
         self.projects = ProjectStore(self.tasks.path)
+        self.project_registration = ProjectRegistration(self.projects)
         existing = next((p for p in self.projects.list() if Path(p['root_path']) == ROOT), None)
-        default = existing or self.projects.create('FlowERP', ROOT,
+        default = existing or self.projects.create('CodexFDE 工作台', ROOT,
             [str(ROOT / '.venv' / ('Scripts/python.exe' if sys.platform == 'win32' else 'bin/python')),
              '-X', 'utf8', '-m', 'eval.harness', '--suite', 'blocking', '--report-path', '{report_path}'],
             project_id='PROJECT-FLOWERP')
         self.initiatives = InitiativeStore(self.tasks.path)
         with self.initiatives.connect() as db:
             db.execute("UPDATE initiatives SET project_id=? WHERE project_id IN ('', 'FlowERP')", (default['id'],))
-        self.default_project = default['id']
+        # Old unbound records belong to the original course checkout. A new
+        # default applies to newly created initiatives only.
+        self.default_project = (self.projects.default() or default)['id']
         self.evolutions = EvolutionStore(self.tasks.path)
         self.views = DeliveryViewService(self.tasks, self.evolutions)
         self.code = WebExecution(ROOT, self.runtime, self.tasks, enabled=enable_code_execution)
@@ -157,6 +161,11 @@ class WorkbenchApp:
         if len(actor) > 80:
             raise ValueError("复验人名称不能超过 80 个字符")
         task = self.tasks.get(task_id)
+        if task.get('authorization_policy') == 'v0':
+            if task.get('execution_mode') != 'verify':
+                raise ValueError('编码任务须在关联事项中重新确认授权')
+            run_task(self.tasks, task_id, actor)
+            return self.views.get(task_id)
         if task.get('execution_mode') == 'codex':
             raise ValueError("代码任务须通过课程执行方案处理，不能从仅复验入口运行")
         status = str(task.get("status") or "")
@@ -181,7 +190,7 @@ class WorkbenchApp:
                         if event.get('detail') == '日常研发交付包已保存']
             if not packages or packages[-1].get('status') != 'review':
                 raise ValueError('日常研发检查与交付包尚未完成，不能批准')
-        if task.get('execution_mode') == 'codex' and decision == 'approve' and not daily:
+        if task.get('execution_mode') == 'codex' and decision == 'approve' and not daily and task.get('authorization_policy') != 'v0':
             gates = [event.get('evidence', {}) for event in task.get('events', [])
                      if event.get('detail') == '课程红绿差分判定已完成']
             if not gates or gates[-1].get('accepted') is not True:
@@ -211,7 +220,9 @@ def make_handler(app: WorkbenchApp):
                 if path == "/api/health":
                     return self._json(200, app.health())
                 if path == '/api/v1/projects':
-                    return self._json(200, {'items': app.projects.list(), 'default_project': app.default_project})
+                    return self._json(200, {'items': app.projects.list(),
+                        'default_project': (app.projects.default() or {'id': app.default_project})['id'],
+                        'registration': {'sources': ['local', 'git'], 'eval_optional': True}})
                 if path == '/api/v1/initiatives':
                     return self._json(200, {'items': app.initiatives.list(100)})
                 if path.startswith('/api/v1/initiatives/'):
@@ -238,6 +249,30 @@ def make_handler(app: WorkbenchApp):
                     limit = int((query.get("limit") or ["30"])[0])
                     return self._json(200, {"items": app.tasks.list(limit)})
                 if path.startswith("/api/v1/tasks/"):
+                    if '/artifacts/' in path:
+                        import hashlib
+                        parts = path.split('/')
+                        if len(parts) != 8 or parts[5] != 'artifacts' or parts[7] not in {'stdout', 'stderr', 'diff'}:
+                            raise ValueError('证据请求格式无效')
+                        task = app.tasks.get(parts[4])
+                        event = next((e for e in task['events'] if str(e['id']) == parts[6]), None)
+                        evidence = (event or {}).get('evidence') or {}
+                        artifact = evidence.get('artifacts', {}).get(parts[7])
+                        if not artifact:
+                            raise ValueError('本轮没有该证据文件')
+                        file_path = Path(artifact).resolve()
+                        if not file_path.is_relative_to(app.runtime / 'delivery' / task['id']) or not file_path.is_file():
+                            raise ValueError('证据不在本任务运行目录内')
+                        raw = file_path.read_bytes()
+                        if hashlib.sha256(raw).hexdigest() != evidence.get('artifact_sha256', {}).get(parts[7]):
+                            raise ValueError('证据内容已变化，不能作为原始记录展示')
+                        self.send_response(200)
+                        self.send_header('Content-Type', 'text/plain; charset=utf-8')
+                        self.send_header('X-Content-Type-Options', 'nosniff')
+                        self.send_header('Content-Length', str(len(raw)))
+                        self.end_headers()
+                        self.wfile.write(raw)
+                        return
                     if path.endswith('/patch'):
                         import hashlib
                         task = app.tasks.get(path.split('/')[-2])
@@ -296,22 +331,20 @@ def make_handler(app: WorkbenchApp):
                 body = json.loads(self.rfile.read(length).decode("utf-8"))
                 if not isinstance(body, dict):
                     raise ValueError("请求体必须是 JSON 对象")
-                if path == '/api/v1/projects':
+                if path == '/api/v1/projects' or path.startswith('/api/v1/projects/'):
                     if self.client_address[0] not in {'127.0.0.1', '::1'} or (self.headers.get('Origin') and self.headers['Origin'] != 'http://' + self.headers.get('Host', '')):
                         raise ValueError('项目登记只允许从本机工作台操作')
                     app.initiative_workflow.actor(body.get('actor'))
-                    command = body.get('eval_command')
-                    if not isinstance(command, list) or not command or any(not isinstance(p, str) or not p.strip() for p in command):
-                        raise ValueError('Eval 命令必须是非空参数数组')
-                    root = body.get('root_path')
-                    name = body.get('name')
-                    if not isinstance(root, str) or not root.strip() or not Path(root).is_absolute() or not isinstance(name, str) or not name.strip():
-                        raise ValueError('请填写项目名称与源码目录的绝对路径')
-                    if not Path(command[0]).is_absolute() or not Path(command[0]).is_file():
-                        raise ValueError('测试命令首项必须是项目运行环境中可执行程序的绝对路径')
-                    if any(Path(p['root_path']) == Path(root).resolve() for p in app.projects.list()):
-                        raise ValueError('该源码目录已登记，请选择已有项目')
-                    return self._json(201, app.projects.create(name, root, command))
+                    if path == '/api/v1/projects':
+                        project = app.project_registration.add(body)
+                        if body.get('make_default') is True: app.default_project = project['id']
+                        return self._json(201, project)
+                    parts = path.split('/')
+                    if len(parts) == 6 and parts[-1] == 'settings':
+                        project = app.project_registration.configure(parts[-2], body)
+                        if body.get('make_default') is True: app.default_project = project['id']
+                        return self._json(200, project)
+                    raise ValueError('项目操作路径无效')
                 if path == '/api/v1/initiatives' or path.startswith('/api/v1/initiatives/'):
                     actor = str(body.get('actor') or '').strip()
                     if not actor or len(actor) > 80 or actor.startswith('agent:'):
@@ -327,6 +360,11 @@ def make_handler(app: WorkbenchApp):
                             raise ValueError('事项操作路径无效')
                         item_id, action = parts[-3], parts[-1]
                         service, revision = app.initiative_workflow, body.get('revision')
+                        if action == 'v0':
+                            return self._json(200, service.submit_v0(item_id, actor, revision,
+                                spec_text=body.get('spec_text'), execution_mode=body.get('execution_mode'),
+                                workspace_path=body.get('workspace_path'), write_scope=body.get('write_scope'),
+                                execution_timeout_seconds=body.get('execution_timeout_seconds'), confirmed=body.get('confirmed')))
                         if action in {'release', 'outcome'}:
                             return self._json(200, service.record_delivery(item_id, actor, revision, action, body.get('fields')))
                         if action == 'reopen':

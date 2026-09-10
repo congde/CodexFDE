@@ -97,10 +97,15 @@ def launch(runtime: Path, port: int = 8001, *, timeout: float = 20,
                    '--host', '127.0.0.1', '--port', str(port), '--runtime-dir', str(runtime)]
         if surface == 'workbench':
             command += ['--enable-code-execution', '--erp-url', f'http://127.0.0.1:{erp_port}']
+        working_directory = ROOT
+        if surface == 'flowerp':
+            from .external_project import command as product_command
+            working_directory, command = product_command(['serve', '--host', '127.0.0.1',
+                '--port', str(port), '--runtime-dir', str(runtime)])
         options = {'creationflags': subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == 'nt' else {'start_new_session': True}
         with log.open('wb') as output:
             from .codex_options import headless_environment
-            process = subprocess.Popen(command, cwd=ROOT, env=headless_environment(), stdin=subprocess.DEVNULL,
+            process = subprocess.Popen(command, cwd=working_directory, env=headless_environment(), stdin=subprocess.DEVNULL,
                                        stdout=output, stderr=subprocess.STDOUT, **options)
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:

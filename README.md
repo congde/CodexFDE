@@ -2,9 +2,11 @@
 
 项目建设主线：**用 Codex，搭建个人 AI 研发工作台；通过工作台组织人与 AI 协同，持续开发 FlowERP。** Codex 是开发伙伴，个人工作台是协同阵地，FlowERP 是持续增长的客户产品。
 
+**FlowERP 已建立独立客户项目仓库：[https://github.com/congde/flowERP.git](https://github.com/congde/flowERP.git)。** CodexFDE 维护个人研发工作台与课程建设；FlowERP 的后续业务开发在独立仓库进行，由工作台添加该项目后组织调研、受控执行与验收。
+
 **工作台唯一入口是 http://127.0.0.1:8001/。** 真实需求从工作台内的“事项与决策”开始，课程跟跑也使用同一工作台。普通事项已接入 Codex 源码调研、需求澄清、确认执行、候选验收与显式集成。
 
-**日常启动：在仓库根目录执行一条命令，同时打开两个系统并自动加载已有数据。** 首次使用须先完成下文的 `.venv` 环境安装。
+**启动工作台与独立 FlowERP：先准备两个仓库各自的 `.venv`，在工作台登记 FlowERP，或设置 `$env:FLOWERP_PROJECT_ROOT="D:\work\flowERP"`。** 随后在本仓库运行以下命令；启动器会从独立仓库启动客户服务，沿用本机保存的数据目录。只启动工作台可执行 `.\.venv\Scripts\python.exe -X utf8 -m workbench.cli serve-workbench`，不要求安装 ERP。
 
 ```powershell
 python main.py
@@ -27,6 +29,49 @@ FDE 指 **Forward-Deployed Engineering**：贴近用户、数据和运行后果�
 
 > 课程采用“案例先行、工具后置”。例如 L03 先用“库存导出”案例识别歧义、补齐验收口径，再介绍 Spec 模板、OpenSpec、Superpowers 等常见方法。通用工具用于迁移和比较，不替代对真实业务的判断。
 
+## 两个仓库如何协作
+
+| 仓库 | 维护内容 | 使用方式 |
+|---|---|---|
+| CodexFDE（本仓库） | 个人研发工作台、交付治理、课程参考实现；课程材料按现有约定仅保留本地 | 从工作台首页添加项目，在“事项与决策”中组织交付 |
+| [FlowERP 独立仓库](https://github.com/congde/flowERP.git) | ERP 业务代码、客户 HTTP API、客户页面与业务测试 | 使用自己的源码目录、虚拟环境和业务数据库，接受工作台组织的受控交付 |
+
+本仓库已移除 `flowerp/`、`web/` 和旧的合并业务 API；业务代码、客户界面和业务测试统一维护在 FlowERP 独立仓库。工作台通过独立进程启动客户服务，通过项目配置运行客户 Eval，不在进程内导入 ERP。旧数据库、已有事项与历史证据保留原归属，不自动迁移。
+
+L04 起的本地课程快照从已配置的独立 FlowERP 仓库取入业务源码与检查，记录来源目录和逐文件 SHA-256；仅在任务隔离目录中构造缺陷与复验。历史课程 Git 标签仍表示原来的单仓库版本，不能把旧标签称为已重新验证的双仓库基线。
+
+### 在工作台添加项目
+
+打开 [工作台首页](http://127.0.0.1:8001/)，点击 **「＋ 添加项目」**，或在“事项与决策”中展开“管理项目”：
+
+1. **已有本地目录**：填写项目名称和目录绝对路径，例如 `D:\work\flowERP`。已有 Git 仓库直接登记；尚未使用 Git 的目录可勾选初始化版本管理，不会自动提交或上传文件。属于其他 Git 仓库的子目录应改为登记仓库根目录。
+2. **Git 仓库链接**：填写 `https://github.com/congde/flowERP.git` 和克隆目标目录。目标目录必须尚不存在，工作台不会覆盖已有文件。也支持 SSH 链接，认证使用本机 Git 的现有配置，不要在链接中填写密码或令牌。
+3. **质量检查配置**：可以先留空，添加后进行调研；确认技术方案及执行代码交付前，须在“配置项目”中补齐检查命令和本机执行环境。
+4. **默认项目**：可勾选“设为新事项的默认项目”。创建需求时核对所属项目；已有事项仍绑定原项目。
+
+添加项目不会自动安装依赖、运行代码或完成业务验收。调研和执行以所选项目的目录为边界，工作台源码变更不会混入另一个独立仓库的文件快照。更新工作台代码后，须重启原服务加载新后端；已有工作台仍须沿用原运行目录。
+
+### 启动独立 FlowERP
+
+如果通过 Git 链接添加，克隆已经完成；如果目录尚未取得，也可以先在终端执行 `git clone https://github.com/congde/flowERP.git D:\work\flowERP`，再按本地目录添加。以下为 Windows 示例，在独立仓库中准备环境并启动客户服务：
+
+```powershell
+Set-Location D:\work\flowERP
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -e .
+.\.venv\Scripts\python.exe -X utf8 -m flowerp serve --port 8002 --runtime-dir .runtime
+```
+
+示例使用 [8002 端口](http://127.0.0.1:8002/)，便于与迁移前仍运行的 8000 旧服务区分；独立 FlowERP 自身默认端口仍为 8000。已有虚拟环境或业务数据库时沿用现有配置，不要重复初始化业务数据。
+
+在工作台“质量检查配置”中填入以下参数数组；本地路径不同则相应修改。命令从隔离候选目录运行，`{report_path}` 由工作台替换为本轮报告路径：
+
+```json
+["D:/work/flowERP/.venv/Scripts/python.exe", "-X", "utf8", "-m", "eval.harness", "--suite", "blocking", "--report-path", "{report_path}"]
+```
+
+工作台仍从 CodexFDE 仓库启动。若客户服务使用上述 8002 端口，在保留工作台原端口和运行目录的前提下，为 `serve-workbench` 增加 `--erp-url http://127.0.0.1:8002`。`python main.py` 的客户服务入口已改为独立仓库；若登记了多个包含 FlowERP 入口的项目，须用 `FLOWERP_PROJECT_ROOT` 明确选择。已有端口上的旧进程不会因为源码迁移自动更新，须在维护时重启。独立项目的完整运行说明见 [FlowERP README](https://github.com/congde/flowERP/blob/main/README.md)。
+
 ## 先认清三个入口
 
 | 入口 | 是否跟跑必做 | 用途 | 默认地址 / 数据 |
@@ -44,6 +89,7 @@ FDE 指 **Forward-Deployed Engineering**：贴近用户、数据和运行后果�
 ### 当前能力与边界
 
 - 首页提供事项与决策、课程任务、交付状态与审核证据。
+- 支持添加本地项目目录或通过 Git 链接克隆项目，分别配置质量检查命令，并选择新事项的默认项目。
 - 同一事项保存业务讨论、Codex 调研方案、具名决定、每轮执行事件、真实 Diff、独立 Eval 和补丁。
 - 返工以此前候选为起点创建新隔离副本；接受候选后，另行确认才能将累计改动集成到项目源码。
 - 验收候选不自动合并；执行速度、失败续修、多轮协作与集成发布仍需完善。
@@ -78,7 +124,7 @@ FDE 指 **Forward-Deployed Engineering**：贴近用户、数据和运行后果�
 
 学生从 [课程资料总入口](docs/README.md) 开始，课堂投影与复习使用 [L01～L16 独立课件](docs/courses/slides/README.md)。对外课程名与 16 讲标题以 [课表｜Codex AI 工程交付行动营](docs/课表｜Codex AI 工程交付行动营.md) 的「主题」列为准，每讲四项内容合同以 [16 讲课程大纲](docs/课程大纲-Codex-FDE行动营-个人研发自动化工作台.md) 为准。基础较弱或尚未配置环境的学员先完成 [L00 课前准备](docs/courses/L00-课前准备-安装工具与通过环境自检.md)及其[行动卡](docs/courses/tasks/L00-课前准备.md)。L00 不计入正式 16 讲，也不产生工作台或 FlowERP 产品增量。
 
-## 5 分钟跑起来
+## 5 分钟跑起来（本仓库课程参考环境）
 
 ### 1. 准备环境
 
@@ -104,6 +150,8 @@ python -m pip install -e .
 Linux 可以使用仓库允许的 Python 3.10+，但不作为课堂统一排错口径。后续命令默认已激活 `.venv`；Windows 也可继续直接调用 `.\.venv\Scripts\python.exe`。
 
 ### 2. 先验证仓库
+
+本仓库默认阻断 Eval 检查工作台；FlowERP 的业务阻断 Eval 在独立仓库运行。下方 `demo` 是兼容命令，会转交独立 FlowERP 进程，因此需要先配置客户项目。课程中显式选择的 ERP 检查仍保留原用例名，执行目标及退出码进入证据。
 
 ```bash
 python -X utf8 -m workbench.cli demo
@@ -217,7 +265,7 @@ python -X utf8 -m workbench.cli serve --runtime-dir .runtime/flowerp
 
 调研会保存从当前磁盘采集的源码片段、文件位置和校验信息，以及实际 Codex 调用记录。调研期间源码更新时保留讨论结果，并阻止过期方案进入执行。后台 CLI 使用独立会话环境，避免复用桌面任务的工具连接。本机试运行曾出现进程启动和读取延迟，超时或中断均保留记录，不能据此声称稳定的响应时延。
 
-本机须已安装并登录 Codex CLI，工作台须启用 `--enable-code-execution`（原有端口、运行目录等参数保持不变）。讨论、执行与集成均异步运行，刷新页面可以继续查看；服务重启会停止未完成轮次并保留失败记录，不会重复执行。当前支持本仓库源码，尚不支持跨仓库调度或自动解决集成冲突。阻断级 Eval 证明已有规则未被破坏，不能替代本期需求的测试和人审。
+本机须已安装并登录 Codex CLI，工作台须启用 `--enable-code-execution`（原有端口、运行目录等参数保持不变）。讨论、执行与集成均异步运行，刷新页面可以继续查看；服务重启会停止未完成轮次并保留失败记录，不会重复执行。当前支持选择已登记的独立本地项目，每个事项绑定一个项目；尚不支持一次交付同时修改多个仓库，也不自动解决集成冲突。阻断级 Eval 证明已有规则未被破坏，不能替代本期需求的测试和人审。
 
 已有执行任务、隔离副本、失败报告与补丁继续保留在原工作台运行目录。移除独立页面不删除历史交付证据。后端能力及当前边界见本地 [工作台研发能力与入口约定](docs/reference/daily-development.md)。
 
@@ -272,12 +320,12 @@ python -X utf8 -m workbench.cli course-status --require-baselines
 
 | 目录 | 职责 |
 |---|---|
-| [`flowerp/`](flowerp/) | ERP 领域模型、SQLite 持久化与业务服务 |
+| [FlowERP `flowerp/`](https://github.com/congde/flowERP/tree/main/flowerp) | ERP 领域模型、SQLite 持久化与业务服务 |
 | [`workbench/`](workbench/) | Spec、任务 API、CLI、交付摘要与反馈 |
 | [`eval/`](eval/) | 唯一质量入口；Hook、CI、Loop、Graph 都复用它 |
 | [`agent/`](agent/) | 失败任务映射、有界 Loop 与显式状态图 |
 | [`workbench_web/`](workbench_web/) | 个人研发工作台统一界面，默认 8001，首页为唯一入口 |
-| [`web/`](web/) | FlowERP 客户项目界面，默认 8000 |
+| [FlowERP `web/`](https://github.com/congde/flowERP/tree/main/web) | FlowERP 客户项目界面，默认 8000 |
 | [`harness_web/`](harness_web/) | 可选的完整 Harness 平台界面，默认 8010 |
 | [`docs/courses/slides/`](docs/courses/slides/) | 与极客时间主题逐讲对应的 16 份独立 PPT |
 | [`docs/courses/tasks/`](docs/courses/tasks/) | 16 讲目标卡、命令卡和验收卡 |
@@ -287,39 +335,11 @@ python -X utf8 -m workbench.cli course-status --require-baselines
 
 ## 一次工作台任务怎样交付
 
-工作台用户统一从首页进入。以下通用 CLI 命令供开发与排错使用；其执行器直接操作当前工作区，不自动建立源码隔离副本，运行前需核对现有修改与写集。
+工作台用户统一从首页进入：添加独立项目并配置 Eval，在“事项与决策”中选择该项目、提出需求、核对方案和写集，再授权执行、复验与具名验收。每个项目使用自己的隔离候选和检查命令，交付包保留来源、Diff、检查结果与人工决定。
 
-```bash
-python -X utf8 -m workbench.cli task-submit \
-  --request "导出指定仓库的可用库存，不得泄露成本字段" \
-  --requirement-id REQ-INVENTORY-EXPORT-001 \
-  --business-ref FLOWERP-INVENTORY \
-  --actor student \
-  --execute-code \
-  --write-scope flowerp \
-  --write-scope tests
-```
-
-工作台会形成可追溯的任务、Spec、执行、Eval、事件和人工审核记录。写权限必须通过 `--write-scope` 明确收窄；没有 `--execute-code` 时，不应把任务描述误解为代码修改授权。
+旧版 `task-submit/task-create/task-run` 是直接操作当前目录的开发排错入口，不会自动选择登记的客户仓库。不要再在 CodexFDE 根目录使用 `--write-scope flowerp` 交付 ERP；本仓库已经没有该业务目录。客户需求使用首页的项目交付流程。
 
 默认调用 `codex`；可通过环境变量 `FLOWERP_CODEX_COMMAND` 指定 Codex CLI 可执行文件。工作台独立记录退出码、实际文件变更与检查结果，失败不能伪装成成功。
-
-也可以分阶段操作：
-
-```bash
-python -X utf8 -m workbench.cli task-create \
-  --request "修复取消订单未释放预占" \
-  --actor student \
-  --execute-code \
-  --write-scope flowerp \
-  --write-scope tests
-python -X utf8 -m workbench.cli task-run <TASK_ID> --actor student
-python -X utf8 -m workbench.cli task-show <TASK_ID>
-python -X utf8 -m workbench.cli task-review <TASK_ID> \
-  --reviewer reviewer \
-  --decision approve \
-  --note "阻断 Eval 与业务证据均已复核"
-```
 
 自动修复与显式编排仍复用同一质量入口：
 

@@ -1,3 +1,5 @@
+> 双仓库部署：先取得独立 FlowERP 仓库，设置 `FLOWERP_PROJECT_ROOT` 为其路径；默认取 CodexFDE 的同级 `flowERP`。两个服务分别构建镜像。工作台镜像构建执行仓库边界测试和工作台阻断 Eval，完整课程集成测试需在取得本地课程材料与独立项目后另行运行。
+
 # 冷启动与回滚
 
 ## 启动前
@@ -25,7 +27,7 @@ docker compose -p flowerp-l16-trial -f deploy/docker-compose.yml ps
 首次空库需要初始化 FlowERP 组织和管理员；在交互终端执行，按提示输入密码，不把密码写入命令或实验记录：
 
 ```powershell
-docker compose -p flowerp-l16-trial -f deploy/docker-compose.yml exec flowerp python -X utf8 -m workbench.cli init --organization FlowERP --username admin
+docker compose -p flowerp-l16-trial -f deploy/docker-compose.yml exec flowerp python -X utf8 -m flowerp init --organization FlowERP --username admin
 ```
 
 ## 两个页面都必须验收
@@ -52,7 +54,7 @@ docker compose -p flowerp-l16-trial -f deploy/docker-compose.yml logs --no-color
 
 失败时先保存日志和两套卷中的证据。不要执行删除数据卷的操作，不要覆盖旧报告。停止这次实验可用同一项目名执行 `docker compose ... stop`；这不会删除卷。
 
-发布前记录上一版确实通过检查的镜像 ID，并为其保留明确标签。回滚时让两个服务使用该已验证镜像，同时保留原数据卷；当前 `flowerp-course:local` 标签可能被重新构建覆盖，不能单独作为回滚依据。数据库变更需要先做一致性备份并在独立目录验证恢复；不演示破坏性 schema 回滚，也不能把正在写入的 SQLite 文件简单复制当作可靠备份。
+发布前记录上一版确实通过检查的镜像 ID，并为其保留明确标签。回滚时让两个服务分别使用各自已验证的镜像，同时保留原数据卷；当前 `flowerp-product:local` 与 `codexfde-workbench:local` 标签可能被重新构建覆盖，不能单独作为回滚依据。数据库变更需要先做一致性备份并在独立目录验证恢复；不演示破坏性 schema 回滚，也不能把正在写入的 SQLite 文件简单复制当作可靠备份。
 
 ## 当前验证状态
 

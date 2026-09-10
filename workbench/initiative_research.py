@@ -33,6 +33,9 @@ class InitiativeResearch:
             '先阅读 AGENTS.md，再查明事项涉及的现有实现。向业务用户解释发现，区分已有能力和新增需求。'
             '根据原话及完整讨论记录，提出最多三个真正需要用户决定的问题；用户已经回答的不要重复问。'
             '信息足够时 questions 返回空列表，提出范围受控的本期目标、非目标、可验证的验收条件、实施步骤。'
+            '人员安排与产品口径分开处理：独立复验者、最终人工验收人尚未指定，不阻止整理产品与技术方案。'
+            '用户明确人员待定时，不要反复追问姓名；在实施步骤注明确认方案及作出人工接受决定前落实相应真实人员与职责。'
+            '不得将待确认、操作人或 AI 自动视为已指定的独立复验者或最终验收人。'
             'users 写实际使用者及使用场景；scope 写本期产品行为范围，不要用文件路径替代业务范围。'
             'acceptance 写给定条件、操作、预期及失败后不变状态；test_plan 单独写如何构造数据、'
             '调用真实入口、读取结果和复验异常路径，关联对应验收条目，不能只重复验收文字。'
@@ -79,8 +82,13 @@ class InitiativeResearch:
         proposal['write_scope'] = normalize_write_scope(proposal['write_scope'])
         if len(proposal['questions']) > 3:
             raise ValueError('调研问题超过本轮上限，请重新整理')
-        if not proposal['sources'] or any(p not in before for p in proposal['sources']):
-            raise ValueError('方案没有可核对的源码依据')
+        if not proposal['sources']:
+            raise ValueError('方案没有可核对的源码依据：sources 为空，请重新调研')
+        missing_sources = [p for p in proposal['sources'] if p not in before]
+        if missing_sources:
+            raise ValueError('方案没有可核对的源码依据：以下路径未纳入当前项目源码快照：'
+                             + '、'.join(missing_sources)
+                             + '。请核对文件是否存在或被 Git 忽略，再重新调研')
         if not proposal['questions'] and any(not proposal[key] for key in
                 ('users', 'scope', 'write_scope', 'acceptance', 'steps', 'test_plan')):
             raise ValueError('可执行方案缺少使用者、产品范围、验收、实施步骤或测试计划')

@@ -70,6 +70,15 @@ class BootstrapHandoffTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, '源码已变化'):
             require_bootstrap_ticket(self.store, tid, self.root)
 
+    def test_homepage_change_invalidates_previous_acceptance(self):
+        (self.root / 'workbench_web').mkdir()
+        page = self.root / 'workbench_web' / 'app.js'
+        page.write_text('// original')
+        tid = self.ticket()
+        page.write_text('// changed after acceptance')
+        with self.assertRaisesRegex(ValueError, '源码已变化'):
+            require_bootstrap_ticket(self.store, tid, self.root)
+
     def test_same_code_in_another_workspace_cannot_borrow_acceptance(self):
         tid = self.ticket()
         with self.assertRaisesRegex(ValueError, '另一工作区'):

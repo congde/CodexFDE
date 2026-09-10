@@ -92,7 +92,8 @@ class InitiativeWorkflowTests(unittest.TestCase):
         result = self.wait()
         self.assertEqual('ready', result['stage'])
         self.assertTrue(result['proposal'])
-        self.assertIn('源码有更新', result['warning'])
+        self.assertIn('本事项所属项目', result['warning'])
+        self.assertEqual([{'path': 'flowerp/value.py', 'kind': 'modified'}], result['source_check']['files'])
         with self.assertRaisesRegex(ValueError, '源码已变化'):
             self.call('confirm', 'reviewer')
 
@@ -101,6 +102,44 @@ class InitiativeWorkflowTests(unittest.TestCase):
         self.call('discuss', '本期更新数值')
         self.assertEqual('ready', self.wait()['stage'])
         self.call('confirm', 'reviewer')
+
+    def test_current_check_clears_historical_warning_without_erasing_evidence(self):
+        self.call('discuss', '本期更新数值')
+        self.wait()
+        data = self.service._load(self.item['id'])
+        data['warning'] = '调研期间源码有更新'
+        self.service._event(data, 'system', data['warning'], changed_sources=['flowerp/value.py'])
+        self.service._save(data)
+        state = self.state()
+        self.assertEqual('current', state['source_check']['status'])
+        self.assertEqual('', state['warning'])
+        self.assertEqual(['flowerp/value.py'], state['messages'][-1]['changed_sources'])
+        self.assertNotIn('research_manifest', state)
+        (self.root / 'flowerp/value.py').write_text('VALUE = 7\n')
+        self.assertEqual('changed', self.state()['source_check']['status'])
+
+    def test_research_refresh_preserves_answers_and_allows_confirmation(self):
+        self.call('discuss', '人员待定，先完善方案')
+        self.wait()
+        (self.root / 'flowerp/value.py').write_text('VALUE = 7\n')
+        self.assertEqual('changed', self.state()['source_check']['status'])
+        self.questions = []
+        self.call('discuss', '保留回答，重新核对最新项目')
+        state = self.wait()
+        self.assertEqual('current', state['source_check']['status'])
+        self.assertEqual('ready', state['stage'])
+        self.assertIn('人员待定，先完善方案', [m['text'] for m in self.research_sources[-1][1]['discussion']])
+        with self.assertRaisesRegex(ValueError, '真实人工验收人'):
+            self.call('confirm', '待确认')
+        self.assertEqual('confirmed', self.call('confirm', 'reviewer')['stage'])
+
+    def test_unreadable_source_cannot_claim_current(self):
+        self.call('discuss', '本期更新数值')
+        self.wait()
+        with patch('workbench.initiative_workflow.manifest', side_effect=OSError('unavailable')):
+            state = self.state()
+        self.assertEqual('unavailable', state['source_check']['status'])
+        self.assertIn('无法核对', state['warning'])
 
     def candidate(self):
         self.ready()
@@ -231,9 +270,43 @@ class InitiativeWorkflowTests(unittest.TestCase):
             server.shutdown(); server.server_close(); thread.join(5)
 
     def test_research_invokes_read_only_codex_and_requires_valid_source_evidence(self):
+        # Keep this source-evidence fixture independent of ongoing changes to
+        # the course checkout's publication/ignore policy.
+        subprocess.run(['git', 'init', '--quiet', str(self.root)], check=True, capture_output=True)
+        (self.root / '.gitignore').write_text(
+            'docs/**\n!docs/**/\n!docs/**/examples/**\n!docs/**/prompts/**\n'
+            '!docs/**/skills/**\n!docs/**/README.md\n!docs/**/行动卡.md\n'
+            'docs/**/__pycache__/\ndocs/**/.env*\ndocs/**/secrets.*\n', encoding='utf-8')
+        example = 'docs/courses/L05/examples/check_delivery.py'
+        prompt = 'docs/courses/L05/prompts/01-从损失反推幂等反例.md'
+        included_docs = (example, prompt,
+                         'docs/courses/L05/examples/allowed-files.json',
+                         'docs/courses/L05/examples/nested/data.json',
+                         'docs/courses/L05/skills/receiving/SKILL.md',
+                         'docs/README.md', 'docs/courses/L05/README.md',
+                         'docs/courses/L05/行动卡.md')
+        excluded_docs = ('docs/courses/L05/实践操作手册.md', 'docs/courses/L05/实践操作手册.docx',
+                         'docs/courses/L05/slides.pptx', 'docs/courses/L05/slides.PPT',
+                         'docs/courses/L05/阅读讲义.md', 'docs/courses/L05/L05-阅读讲义.docx',
+                         'docs/courses/L05/assets/diagram.drawio', 'docs/courses/L05/assets/diagram.png',
+                         'docs/courses/L05/其他资料.md', 'docs/courses/L05/examples/secrets.py',
+                         'docs/courses/L05/skills/.env', 'docs/courses/L05/examples/__pycache__/example.pyc')
+        for name in (*included_docs, *excluded_docs,
+                     'docs/courses/L05/__pycache__/example.pyc', 'docs/courses/L05/secrets.py'):
+            target = self.root / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text('course fixture', encoding='utf-8')
+        snapshot = manifest(self.root, self.runtime)
+        for name in included_docs:
+            self.assertIn(name, snapshot)
+        for name in excluded_docs:
+            self.assertNotIn(name, snapshot)
+        self.assertNotIn('docs/courses/L05/__pycache__/example.pyc', snapshot)
+        self.assertNotIn('docs/courses/L05/secrets.py', snapshot)
         proposal = {'goal': '更新数值', 'findings': ['找到数值实现'], 'questions': ['目标值？'],
             'users': [], 'scope': [], 'test_plan': [],
-            'non_goals': [], 'acceptance': [], 'write_scope': [], 'steps': [], 'sources': ['flowerp/value.py']}
+            'non_goals': [], 'acceptance': [], 'write_scope': [], 'steps': [],
+            'sources': ['flowerp/value.py', example, prompt]}
         calls = []
         def run(runner, command, prompt, timeout, on_line, started):
             calls.append(command)
@@ -256,5 +329,8 @@ class InitiativeWorkflowTests(unittest.TestCase):
             ready = InitiativeResearch()(self.root, self.runtime, self.runtime / 'complete-prd', {}, lambda _: None)
             self.assertNotEqual(ready['proposal']['acceptance'], ready['proposal']['test_plan'])
             proposal['sources'] = ['not-real.py']
-            with self.assertRaisesRegex(ValueError, '源码依据'):
+            with self.assertRaisesRegex(ValueError, '源码依据.*not-real.py'):
                 InitiativeResearch()(self.root, self.runtime, self.runtime / 'invalid-research', {}, lambda _: None)
+            proposal['sources'] = []
+            with self.assertRaisesRegex(ValueError, 'sources 为空'):
+                InitiativeResearch()(self.root, self.runtime, self.runtime / 'empty-research', {}, lambda _: None)

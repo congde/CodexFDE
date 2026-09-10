@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import secrets
+import subprocess
 import threading
 import time
 from pathlib import Path
@@ -16,6 +17,13 @@ from .initiative_research import InitiativeResearch
 
 BUSY = {'researching', 'queued', 'executing', 'cancelling', 'integrating'}
 INTEGRATION_LOCK = threading.Lock()
+
+
+def research_source_check(source, baseline, current, proposal):
+    """The registered project root is the boundary, never the workbench root."""
+    changes = [{'path': p, 'kind': 'added' if p not in baseline else 'removed' if p not in current else 'modified'}
+               for p in sorted(baseline.keys() | current.keys()) if baseline.get(p) != current.get(p)]
+    return {'status': 'changed' if changes else 'current', 'files': changes}
 
 
 class InitiativeWorkflow:
@@ -54,7 +62,7 @@ class InitiativeWorkflow:
         project = self.project(item_id)
         return Path(project['root_path']) if project else self.repository
 
-    def preflight(self, item_id):
+    def preflight(self, item_id, *, require_eval=True):
         if not self.projects:
             return
         import shutil
@@ -65,8 +73,8 @@ class InitiativeWorkflow:
         root = Path(project['root_path'])
         if not root.is_dir() or not (root / '.git').exists():
             raise ValueError('项目目录或 Git 工作区不可用')
-        command = project['eval_command'][0]
-        if not (Path(command).is_absolute() and Path(command).is_file()):
+        command = (project['eval_command'] or [''])[0]
+        if require_eval and not (Path(command).is_absolute() and Path(command).is_file()):
             raise ValueError('请登记项目运行环境中解释器或测试程序的绝对路径')
         runner = CodexExecutionRunner(root, self.runtime)
         capability = runner.capabilities()
@@ -125,7 +133,14 @@ class InitiativeWorkflow:
         item = self.initiatives.get(item_id)
         with self.tasks.connect() as db:
             row = db.execute('SELECT payload FROM initiative_workflows WHERE id=?', (item_id,)).fetchone()
-        return json.loads(row['payload']) if row else {
+        if row:
+            data = json.loads(row['payload'])
+            if data.get('v0') and data.get('active_task_id'):
+                task = self.tasks.get(data['active_task_id'])
+                if task['status'] in {'review', 'completed', 'rework', 'failed', 'dead_letter'}:
+                    data['stage'] = task['status']
+            return data
+        return {
             'id': item_id, 'revision': 0, 'stage': 'idle', 'initiative_version': item['version'],
             'messages': [], 'proposal': None, 'iterations': [], 'active_task_id': None,
             'workspace': None, 'plan': None, 'invocation': None, 'error': '', 'progress': []}
@@ -205,6 +220,70 @@ class InitiativeWorkflow:
     def _event(self, data, role, text, **extra):
         data['messages'].append({'role': role, 'text': text, 'at': time.time(), **extra})
 
+    def submit_v0(self, item_id, actor, revision, *, spec_text, execution_mode,
+                  workspace_path, write_scope, execution_timeout_seconds, confirmed=False):
+        """Consume the user's already-confirmed contract without generating another one."""
+        from .spec import parse_spec
+        from .execution import validate_v0_authorization
+        actor = self.actor(actor)
+        if confirmed is not True:
+            raise ValueError('请确认本次合同、执行方式和允许文件')
+        if execution_mode == 'codex' and not self.enabled:
+            raise ValueError('当前服务未启用 Codex 编码')
+        if not isinstance(spec_text, str) or len(spec_text) > 24000:
+            raise ValueError('合同须为最多 24000 字的 Markdown 文本')
+        parse_spec(spec_text)
+        validate_v0_authorization(execution_mode, workspace_path, write_scope, execution_timeout_seconds)
+        if execution_mode == 'codex' and Path(workspace_path).resolve() == self.repository_for(item_id).resolve():
+            raise ValueError('请使用隔离候选目录，不能直接修改登记项目')
+        with self.lock:
+            data = self._load(item_id)
+            self._check(data, revision, {'idle', 'rework', 'failed', 'cancelled', 'interrupted'})
+            item = self.initiatives.get(item_id)
+            if item.get('decision') in {'defer', 'reject', 'stop'}:
+                raise ValueError('事项已暂缓或停止，请先复查决定')
+            folder = self.runtime / 'v0-contracts' / secrets.token_hex(16)
+            folder.mkdir(parents=True)
+            path = folder / 'SPEC.md'
+            path.write_text(spec_text, encoding='utf-8')
+            task = self.tasks.create_v0(item['title'], spec_path=str(path), actor=actor,
+                requirement_id='WB-L04-BOOTSTRAP', execution_mode=execution_mode,
+                workspace_path=workspace_path, write_scope=write_scope,
+                execution_timeout_seconds=execution_timeout_seconds)
+            self.tasks.append_event(task['id'], '已关联具名决定的事项与冻结合同', actor=actor,
+                evidence={'id': item_id, 'title': item['title'], 'version': item['version'],
+                          'decision_by': actor, 'spec_sha256': task['spec_sha256']})
+            with self.initiatives.connect() as db:
+                db.execute("UPDATE initiatives SET linked_task_id=?,status='delivering' WHERE id=?", (task['id'], item_id))
+                self.initiatives._append(db, item_id, 'delivery/v0', actor, {'task_id': task['id']})
+            data.update(active_task_id=task['id'], stage='queued', error='', v0=True)
+            data['iterations'].append({'task_id': task['id'], 'plan_id': None})
+            self._event(data, 'user', '确认合同并启动：' + execution_mode, actor=actor, task_id=task['id'])
+            self._launch(data, self._run_v0, actor)
+        return self.get(item_id)
+
+    def _run_v0(self, item_id, actor):
+        from .execution import CodexExecutionRunner
+        from .workflow import run_task
+        from .execution_control import delivery_lock, checkpoint
+        while not delivery_lock.acquire(timeout=.1):
+            checkpoint()
+        try:
+            with self.lock:
+                data = self._load(item_id)
+                data['stage'] = 'executing'
+                self._save(data)
+            task = self.tasks.get(data['active_task_id'])
+            result = run_task(self.tasks, task['id'], actor,
+                execution_runner=CodexExecutionRunner(task['workspace_path'], self.runtime))
+            with self.lock:
+                data = self._load(item_id)
+                data.update(stage=result['status'], error=result.get('error') or '')
+                self._event(data, 'system', 'V0 执行结束；检查与人工确认请在交付记录查看', task_id=task['id'])
+                self._save(data)
+        finally:
+            delivery_lock.release()
+
     def _check(self, data, revision, stages):
         if type(revision) is not int or data['revision'] != revision:
             raise ValueError('事项进展已变化，请刷新后核对最新内容')
@@ -219,6 +298,20 @@ class InitiativeWorkflow:
         data['enabled'] = self.enabled
         data['project'] = self.project(item_id)
         data['prd_confirmed'] = bool(data.get('documents') and data['documents'][-1].get('prd_confirmation'))
+        # The saved warning describes a past observation, not the current tree.
+        # Keep that observation in messages and expose a fresh, inspectable check.
+        data['source_check'] = None
+        if data.get('research_manifest') is not None and data['stage'] in {'clarifying', 'ready', 'confirmed'}:
+            source = Path(data['workspace']) if data['workspace'] else self.repository_for(item_id)
+            try:
+                current = manifest(source, self.runtime)
+                data['source_check'] = research_source_check(source, data['research_manifest'], current, data['proposal'])
+                changes = data['source_check']['files']
+                data['warning'] = (f'本事项所属项目有 {len(changes)} 项文件变化。'
+                                   '已有回答和发现已保留；请重新核对后确认方案。' if changes else '')
+            except (OSError, ValueError, subprocess.SubprocessError):
+                data['source_check'] = {'status': 'unavailable', 'files': []}
+                data['warning'] = '暂时无法核对项目文件，请恢复项目目录后重新核对。'
         data.pop('origin_manifest', None)
         data.pop('research_manifest', None)
         data.pop('candidate_manifest', None)
@@ -298,7 +391,7 @@ class InitiativeWorkflow:
         with self.lock:
             data = self._load(item_id)
         if isinstance(self.researcher, InitiativeResearch):
-            self.preflight(item_id)
+            self.preflight(item_id, require_eval=False)
         source = Path(data['workspace']) if data['workspace'] else self.repository_for(item_id)
         folder = self.runtime / 'initiative-research' / item_id / secrets.token_hex(12)
         item = self.initiatives.get(item_id)
@@ -327,6 +420,8 @@ class InitiativeWorkflow:
 
     def confirm(self, item_id, actor, revision, reviewer):
         actor, reviewer = self.actor(actor), self.actor(reviewer)
+        if reviewer.lower() in {'待确认', '待定', '待指定', '未指定', 'tbd', 'pending', 'ai', 'codex'}:
+            raise ValueError('方案确认前请填写真实人工验收人的署名，不能使用待确认或 AI 名称')
         with self.lock:
             data = self._load(item_id)
             self._check(data, revision, {'ready'})
@@ -334,15 +429,20 @@ class InitiativeWorkflow:
             if item['version'] != data['initiative_version']:
                 raise ValueError('事项内容已变化，请重新调研')
             proposal = data['proposal']
+            project = self.project(item_id)
+            if project and not project.get('eval_command'):
+                raise ValueError('请先在管理项目中配置质量检查命令，再确认技术方案')
             if self.projects and not data['documents'][-1].get('prd_confirmation'):
                 raise ValueError('请先分别确认 PRD，再确认技术方案')
             if not data.get('documents'):
                 self._documents(data, item, proposal)
             source = Path(data['workspace']) if data['workspace'] else self.repository_for(item_id)
-            if manifest(source, self.runtime) != data['research_manifest']:
+            if research_source_check(source, data['research_manifest'], manifest(source, self.runtime), proposal)['files']:
                 raise ValueError('调研所依据的源码已变化，请重新调研')
             plan = prepare_daily(source, self.runtime, actor, proposal['goal'], '\n'.join(proposal['acceptance']),
                                  proposal['write_scope'], '\n'.join(proposal['non_goals']) or '不扩大本次目标', project=self.project(item_id))
+            if research_source_check(source, data['research_manifest'], plan['source_manifest'], proposal)['files']:
+                raise ValueError('确认期间源码已变化，请重新调研')
             plan['spec_text'] += '\n\n产品与技术方案版本：\n\n' + json.dumps(data['documents'][-1], ensure_ascii=False)
             plan.update(plan_id=secrets.token_hex(18), expires_at=time.time() + 900)
             plan['document_version'] = data['document_version']

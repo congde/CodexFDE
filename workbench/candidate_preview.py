@@ -62,6 +62,10 @@ class CandidatePreviews:
             wait_for_product_release(data)
             command = [sys.executable, '-X', 'utf8', '-m', 'workbench.cli', 'serve',
                        '--host', '127.0.0.1', '--port', str(port), '--runtime-dir', str(data)]
+            if (workspace / 'flowerp/server.py').is_file():
+                from .external_project import flowerp_root, python_for
+                command = [python_for(flowerp_root()), '-X', 'utf8', '-m', 'flowerp', 'serve',
+                           '--host', '127.0.0.1', '--port', str(port), '--runtime-dir', str(data)]
             process, owner, prefix = spawn(command, workspace)
             try:
                 process.stdin.write(prefix); process.stdin.close()

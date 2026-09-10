@@ -7,6 +7,7 @@ import subprocess
 from pathlib import Path
 
 from .execution import CodexExecutionRunner, CodexLineCallback
+from .codex_command import resolve_codex_command
 
 
 def task_project_id(task: dict) -> str:
@@ -29,7 +30,7 @@ class ProjectExecutionRunner:
         return CodexExecutionRunner(project["root_path"], self.runtime_dir)(task, on_codex_line=on_codex_line)
 
     def capabilities(self) -> dict:
-        command = os.getenv("FLOWERP_CODEX_COMMAND", "codex")
+        command = resolve_codex_command()
         resolved = shutil.which(command)
         return {
             "codex_available": bool(resolved),

@@ -85,6 +85,30 @@ def prepare_source_snapshot(repository_root: str | Path, runtime_dir: str | Path
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_bytes(content)
         manifest[relative.as_posix()] = hashlib.sha256(content).hexdigest()
+    external_source = None
+    if lesson_number >= 4 and not (target / 'flowerp').is_dir():
+        from .external_project import flowerp_root
+        product = flowerp_root()
+        product_paths = []
+        for directory in ('flowerp', 'web'):
+            product_paths.extend(p for p in (product / directory).rglob('*')
+                                 if p.is_file() and p.suffix.lower() in TEXT_SUFFIXES
+                                 and not p.name.lower().startswith(('.env', 'auth.', 'credentials.', 'secrets.'))
+                                 and not set(p.relative_to(product).parts) & EXCLUDED_DIRS)
+        product_manifest = {}
+        for path in [*product_paths, product / 'eval/cases.py']:
+            if path.is_symlink() or not path.resolve().is_relative_to(product):
+                raise ValueError('FlowERP 课程源文件路径越界')
+            relative = path.relative_to(product).as_posix()
+            destination = target / ('eval/erp_cases.py' if relative == 'eval/cases.py' else relative)
+            content = path.read_bytes()
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_bytes(content)
+            product_manifest[relative] = hashlib.sha256(content).hexdigest()
+        external_source = {'root': str(product), 'manifest': product_manifest,
+                           'purpose': 'isolated teaching candidate; not a second maintained product'}
+        (target / '.course').mkdir(exist_ok=True)
+        (target / '.course/product-source.json').write_text(json.dumps(external_source, ensure_ascii=False, indent=2), encoding='utf-8')
     student_start = apply_student_start(target, lesson_number)
     _git(target, "init", "--quiet")
     # Runtime evidence remains outside the baseline commit.
@@ -96,6 +120,7 @@ def prepare_source_snapshot(repository_root: str | Path, runtime_dir: str | Path
     payload = {
         "mode": "local_source_snapshot", "path": str(target), "source_root": str(source),
         "source_manifest": manifest,
+        "external_product_source": external_source,
         "source_tree_sha256": hashlib.sha256(json.dumps(manifest, sort_keys=True).encode()).hexdigest(),
         "snapshot_commit": commit, "baseline_commit": commit, "baseline_ref": None,
         "baseline_semantics": "working_tree_snapshot", "detached": False,

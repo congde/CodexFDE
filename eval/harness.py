@@ -10,6 +10,8 @@ from typing import Callable
 
 from . import cases
 
+PROJECT_CASES = frozenset({'illegal_transition_is_blocked', 'purchase_requires_approval', 'stale_stock_count_is_blocked', 'payable_aging_tracks_open_supplier_exposure', 'purchase_request_preserves_reason', 'production_schema_invariants', 'order_total_matches_lines', 'stock_never_negative', 'ecommerce_channel_order_is_idempotent_and_guarded', 'backup_is_restorable', 'bank_statement_control_and_reconciliation', 'channel_callback_lease_is_exclusive_and_bounded', 'multi_location_transfer_conserves_stock', 'inventory_export_is_stable', 'cancellation_releases_reservation', 'receiving_is_idempotent', 'double_entry_fifo_and_subledger_reconciliation', 'purchase_invoice_three_way_match', 'sales_credit_and_atomic_reservation'})
+
 
 @dataclass
 class EvalResult:
@@ -64,6 +66,8 @@ def run_suite(suite: str = "all", write_report: bool = True,
     unknown = sorted(set(case_names or ()) - available)
     if unknown: raise ValueError(f"未知 Eval：{', '.join(unknown)}")
     selected = [item for item in EVALS if suite == "all" or item[1] == suite]
+    if not case_names:
+        selected = [item for item in selected if item[0] not in PROJECT_CASES]
     if case_names:
         requested = set(case_names)
         selected = [item for item in selected if item[0] in requested]
