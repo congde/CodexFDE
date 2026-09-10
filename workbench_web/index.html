@@ -22,13 +22,10 @@
 </section>
 <div class="home-columns"><section class="home-inbox"><div class="section-top"><div><span class="eyebrow">NEXT DECISION</span><h2 id="home-list-title">下一步，等你来定</h2></div><button id="home-all" class="text-button">查看全部事项</button></div><p id="home-status" class="hint" role="status"></p><div id="home-items"></div></section>
 <aside class="home-rail"><section class="workbench-contract"><span class="eyebrow">这次交付，怎样分工</span><h3>你把握方向，<br>工作台组织执行。</h3><dl><div><dt>你来决定</dt><dd>目标与范围、授权、最终验收。</dd></div><div><dt>工作台来组织</dt><dd>把已确认的需求交给 Codex，运行检查，把结果带回原事项。</dd></div><div><dt>每一轮留下</dt><dd>需求版本、实际改动、检查结果和你的决定。</dd></div></dl></section><section class="home-outcomes"><span class="eyebrow">交付之后</span><h3>改了代码，也要看效果。</h3><p id="home-outcome-note">正在读取实际发布与反馈…</p><button class="text-button" id="home-show-outcomes">查看交付与效果 →</button></section></aside></div>
-<div class="home-footer"><label><input type="checkbox" id="home-include-mock"> 包含课程演示事项</label><p id="home-mock-note"></p><button class="text-button" data-view="course">进入课程与练习 →</button></div>
+<div class="home-footer"><label><input type="checkbox" id="home-include-cleared"> 查看已清除事项</label><label><input type="checkbox" id="home-include-mock"> 包含课程演示事项</label><p id="home-mock-note"></p><button class="text-button" data-view="course">进入课程与练习 →</button></div>
 </div>
-<div id="view-decision" hidden>
-<section class="decision-intro"><div><span class="eyebrow">DELIVERY WORKSPACE</span><h2>事项与决策</h2><p class="muted">一个事项，贯穿目标、执行、验收和效果回收。</p></div><button class="primary" id="capture-initiative">＋ 记录新事项</button></section>
-<details id="project-registration"><summary>管理项目 · 添加本地目录或 Git 仓库</summary><p>添加后即可选择项目并发起调研。每个项目使用自己的目录，质量检查未配置前不能启动代码交付。</p>
-<div id="project-list"></div><h3 id="project-form-title">添加项目</h3>
-<label>添加方式<select id="project-source"><option value="local">已有本地目录</option><option value="git">Git 仓库链接</option></select></label>
+<dialog id="project-dialog" aria-labelledby="project-form-title"><button type="button" id="close-project-registration" class="secondary project-dialog-close" aria-label="关闭项目窗口">关闭</button><section id="project-registration"><h2 id="project-form-title">添加项目</h2><p>添加后即可选择项目并发起调研。每个项目使用自己的目录，质量检查未配置前不能启动代码交付。</p>
+<label>添加方式<select id="project-source"><option value="local">本地文件夹</option><option value="git">Git 仓库</option></select></label>
 <label>项目名称<input id="project-name" maxlength="120" placeholder="例如：FlowERP"></label>
 <label id="project-url-field" hidden>Git 仓库链接<input id="project-url" placeholder="https://github.com/组织/仓库.git"></label>
 <label><span id="project-root-label">本地目录</span><input id="project-root" placeholder="D:\work\my-project"></label>
@@ -36,7 +33,10 @@
 <p id="project-source-help">填写已有目录的绝对路径。已有 Git 仓库直接登记，不会重建。</p>
 <details><summary>质量检查配置（可稍后填写）</summary><p>从隔离候选目录运行，输出含 summary.decision（pass/block）的 JSON。首项为本机执行程序绝对路径；{report_path} 为报告路径，{workspace} 为候选目录。</p><label>命令参数（JSON 数组）<textarea id="project-eval" placeholder='["D:/project/.venv/Scripts/python.exe", "check.py"]'></textarea></label></details>
 <label><input id="project-default" type="checkbox">设为新事项的默认项目</label>
-<button type="button" id="project-register">添加项目</button><button type="button" id="project-new" hidden>返回添加项目</button><p id="project-status" role="status" aria-live="polite"></p></details>
+<button type="button" id="project-register">添加项目</button><button type="button" id="project-new" hidden>返回添加项目</button><p id="project-status" role="status" aria-live="polite"></p><details><summary>已添加的项目 · 配置</summary><div id="project-list"></div></details></section></dialog>
+<div id="view-decision" hidden>
+<section class="decision-intro"><div><span class="eyebrow">DELIVERY WORKSPACE</span><h2>事项与决策</h2><p class="muted">一个事项，贯穿目标、执行、验收和效果回收。</p></div><button class="primary" id="capture-initiative">＋ 记录新事项</button></section>
+<button type="button" id="manage-projects" class="secondary">管理项目</button>
 <p id="initiative-status" class="hint" role="status"></p>
 <div class="initiative-layout"><section id="initiative-directory"><h3>选择一项交付，继续推进</h3><div id="initiative-list"></div></section><section id="initiative-editor" hidden>
 <button class="text-button" id="back-to-initiatives">← 返回事项列表</button><h2 id="initiative-title">新事项</h2><details id="initiative-contract" open><summary>原始需求与项目目标</summary><form id="initiative-form"><label>所属项目<select id="init-project"></select></label>

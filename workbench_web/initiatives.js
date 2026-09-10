@@ -170,10 +170,15 @@ function projectRegistrationPayload() {
 }
 projectField('source').onchange=projectSourceView;
 projectField('new').onclick=()=>editRegisteredProject();
-document.getElementById('open-project-registration').onclick=()=>{
-  workspaceView('decision');projectField('registration').open=true;
-  projectField('registration').scrollIntoView({behavior:'smooth'});loadInitiativeProjects();
-};
+function openProjectRegistration() {
+  if(!projectPending) {editRegisteredProject();show('project-status','');}
+  projectField('dialog').showModal();
+  if(!projectPending)projectField('name').focus();
+  loadInitiativeProjects();
+}
+document.getElementById('open-project-registration').onclick=openProjectRegistration;
+document.getElementById('manage-projects').onclick=openProjectRegistration;
+document.getElementById('close-project-registration').onclick=()=>projectField('dialog').close();
 projectField('register').onclick=async function() {
   if(projectPending || !projectRegistrationAvailable)return;
   let payload;

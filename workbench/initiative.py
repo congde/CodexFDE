@@ -163,6 +163,8 @@ class InitiativeStore:
                 """
             )
             columns = {row["name"] for row in conn.execute("PRAGMA table_info(initiatives)")}
+            if "home_hidden" not in columns:
+                conn.execute("ALTER TABLE initiatives ADD COLUMN home_hidden INTEGER NOT NULL DEFAULT 0")
             if "superseded_by" not in columns:
                 conn.execute(
                     "ALTER TABLE initiatives ADD COLUMN superseded_by TEXT NOT NULL DEFAULT ''"
@@ -180,6 +182,19 @@ class InitiativeStore:
             raise
         finally:
             conn.close()
+
+    def set_home_hidden(self, initiative_id: str, hidden: bool, actor: str, version: int) -> dict:
+        if not _text(actor) or actor.startswith('agent:'):
+            raise ValueError('清除或恢复需要具名人操作')
+        with self.connect() as conn:
+            changed = conn.execute(
+                "UPDATE initiatives SET home_hidden=?, version=version+1, updated_at=CURRENT_TIMESTAMP "
+                "WHERE id=? AND version=?", (int(hidden), initiative_id, version))
+            if changed.rowcount != 1:
+                raise ValueError('事项已变化或不存在，请刷新后重试')
+            self._append(conn, initiative_id, 'initiative/home-cleared' if hidden else 'initiative/home-restored',
+                         actor, {'home_hidden': hidden})
+        return self.get(initiative_id)
 
     def create(self, data: dict, actor: str) -> dict:
         _reject_lossy_text(data)

@@ -9,7 +9,7 @@ function setup(){
   const element=tag=>({tag,value:'',textContent:'',checked:false,disabled:false,hidden:false,children:[],
     append(...children){this.children.push(...children);},replaceChildren(){this.children=[];},
     querySelectorAll(tag){return this.children.flatMap(el=>el.tag===tag?[el]:el.querySelectorAll(tag));},
-    scrollIntoView(){}});
+    scrollIntoView(){},focus(){this.focused=true;},showModal(){this.open=true;},close(){this.open=false;}});
   const document={createElement:element,getElementById(id){if(!nodes.has(id))nodes.set(id,element('div'));return nodes.get(id);}};
   const calls=[];
   const context=vm.createContext({document,console,encodeURIComponent,actorName:()=> 'fixture-user',
@@ -36,6 +36,18 @@ test('local folder is submitted without requiring an Eval command',async()=>{
   assert.equal(calls[0].body.make_default,true);
   assert.equal(document.getElementById('init-project').value,'PROJECT-NEW');
   assert.match(document.getElementById('project-status').textContent,/可以开始调研/);
+});
+
+test('home opens an add dialog after editing a project and closes without changing the item',()=>{
+  const {context,document}=setup();
+  context.editRegisteredProject({id:'EXISTING',name:'ERP',root_path:'D:/erp',eval_command:[]});
+  document.getElementById('open-project-registration').onclick();
+  assert.equal(document.getElementById('project-dialog').open,true);
+  assert.equal(document.getElementById('project-name').value,'');
+  assert.equal(document.getElementById('project-root').disabled,false);
+  assert.equal(document.getElementById('project-name').focused,true);
+  document.getElementById('close-project-registration').onclick();
+  assert.equal(document.getElementById('project-dialog').open,false);
 });
 
 test('Git source switches fields, sends URL and target, and invalid config sends no request',async()=>{

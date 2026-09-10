@@ -26,5 +26,9 @@
 #project-list article p{font-size:12px;overflow-wrap:anywhere;margin:6px 0;color:#687a72}
 #project-registration input[type=checkbox]{width:auto;margin-right:8px}
 #project-registration details{margin:14px 0}
+#project-dialog{width:min(760px,calc(100vw - 32px));max-height:85vh;box-sizing:border-box;border:1px solid #dfe7e0;border-radius:16px;padding:24px;color:#213b2c;background:#fff;overflow:auto}
+#project-dialog::backdrop{background:#152c2466}
+#project-dialog #project-registration{border:0;margin:0;padding:0}
+.project-dialog-close{float:right;margin-left:16px}
 .identity-bar p{flex:1 1 240px;margin:0;font-size:12px;color:#687a72}
 @media(max-width:760px){.identity-bar{align-items:flex-start}.identity-bar input{flex:1 1 180px}.identity-bar p{flex-basis:100%}}

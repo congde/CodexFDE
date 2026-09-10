@@ -397,6 +397,12 @@ def make_handler(app: WorkbenchApp):
                     if len(parts) == 6:
                         item_id, action = parts[-2:]
                         version = int(body.get('version', 0))
+                        if action in {'clear-home', 'restore-home'}:
+                            origin = self.headers.get('Origin')
+                            if origin and origin != 'http://' + self.headers.get('Host', ''):
+                                return self._json(403, {'error': 'cross_origin', 'message': '请从当前工作台页面操作'})
+                            return self._json(200, app.initiatives.set_home_hidden(
+                                item_id, action == 'clear-home', actor, version))
                         if action == 'revise':
                             original = app.initiatives.get(item_id)
                             if body.get('data', {}).get('project_id', original['project_id']) != original['project_id']:

@@ -69,6 +69,23 @@ test('home excludes course simulations until explicitly included',()=>{
   assert.match(node('home-status').textContent,/含演示/);
 });
 
+test('cleared cards stay hidden until requested and running cards cannot be cleared',()=>{
+  const {context,node}=setup();
+  context.show=(id,value)=>{node(id).textContent=value;};
+  node('home-project').value='all';
+  vm.runInContext(`homeRows=[
+    {item:{id:'old',title:'old',home_hidden:1},work:{},view:deliveryStageView('failed')},
+    {item:{id:'active',title:'active'},work:{},view:deliveryStageView('executing')}
+  ];homeFilter='all';`,context);
+  context.renderProjectHome();
+  assert.equal(node('home-items').children.length,1);
+  assert.equal(node('home-items').children[0].children[3].children[2].disabled,true);
+  node('home-include-cleared').checked=true;
+  context.renderProjectHome();
+  assert.equal(node('home-items').children.length,2);
+  assert.equal(node('home-items').children[0].children[3].children[2].textContent,'恢复到首页');
+});
+
 test('candidate inspection uses a top-level link without a blocked cross-origin frame',async()=>{
   const {context,node}=setup();
   context.actorName=()=> 'automated test';
