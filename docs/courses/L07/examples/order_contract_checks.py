@@ -35,6 +35,7 @@ def rejected_order_has_no_residue():
         service.add_product('A', '商品 A', 3000)
         for oid, lines, expected in [
             ('L07-ZERO', [OrderLine('A', 0, 3000)], ValueError),
+            ('L07-NEGATIVE', [OrderLine('A', -1, 3000)], ValueError),
             ('L07-MISSING', [OrderLine('A', 1, 3000), OrderLine('MISSING', 1, 2000)], NotFound),
         ]:
             before = {table: store.rows(f'SELECT * FROM {table}')
@@ -47,7 +48,7 @@ def rejected_order_has_no_residue():
                 raise AssertionError(f'{oid}: expected {expected.__name__}')
             after = {table: store.rows(f'SELECT * FROM {table}') for table in before}
             assert after == before, f'{oid}: rejected but state changed'
-        return '数量为零、第二行商品不存在均拒绝；订单头、明细、库存三表保持原样'
+        return '数量为零或负数、第二行商品不存在均拒绝；订单头、明细、库存三表保持原样'
 
 
 def amount_transfer():

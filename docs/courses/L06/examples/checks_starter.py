@@ -11,8 +11,9 @@ from flowerp import ERPService, ERPStore
 from flowerp.models import InsufficientStock, OrderLine
 
 
-def stock_consistency():
-    opening=int(os.environ.get('L06_OPENING','8')); reserved=int(os.environ.get('L06_RESERVED','3'))
+def stock_consistency(opening=None, reserved=None):
+    opening=int(os.environ.get('L06_OPENING','8')) if opening is None else opening
+    reserved=int(os.environ.get('L06_RESERVED','3')) if reserved is None else reserved
     if not 0 < reserved < opening:raise ValueError('require 0 < reserved < opening')
     with tempfile.TemporaryDirectory(prefix='l06-stock-') as temp:
         store=ERPStore(Path(temp)/'stock.db');service=ERPService(store)
@@ -31,14 +32,16 @@ def stock_consistency():
             raise AssertionError(f'AC-AVAILABLE: expected={wanted}, actual={observed}')
         def state():
             return {'stock':store.row('SELECT * FROM stock WHERE sku=?',('L06-A',)),
-                    'events':store.rows('SELECT * FROM inventory_events WHERE sku=? ORDER BY rowid',('L06-A',))}
+                    'events':store.rows('SELECT * FROM inventory_events WHERE sku=? ORDER BY rowid',('L06-A',)),
+                    'orders':store.rows('SELECT * FROM sales_orders ORDER BY id'),
+                    'lines':store.rows('SELECT * FROM sales_order_lines ORDER BY rowid')}
         excessive=service.create_order('超额订单',[OrderLine('L06-A',expected+1,100)],'order-B')
         before=state()
         try:service.reserve_order(excessive['id'])
         except InsufficientStock:pass
         else:raise AssertionError('AC-REJECT: excessive reservation was accepted')
         if state()!=before:raise AssertionError(f'AC-UNCHANGED: expected={before}, actual={state()}')
-        return f'AC-AVAILABLE {observed}; reject {expected+1}; stock and inventory events unchanged'
+        return f'AC-AVAILABLE {observed}; reject {expected+1}; stock, events, orders and lines unchanged'
 
 
 def tests(module):
@@ -52,17 +55,23 @@ def l05_receiving():return tests('tests.test_l05_receiving')
 def l05_scope():return tests('tests.test_l05_scope')
 def harness_contract():return tests('tests.test_l06_runner')
 
+def help_image():
+    raise AssertionError('教学观察项：模拟非阻断提示，不代表实际缺少配图')
+
 
 ENTRIES=[('l06_stock_consistency','blocking',stock_consistency),
          ('l05_personal_receiving','blocking',l05_receiving),
-         ('l05_personal_scope','blocking',l05_scope)]
+         ('l05_personal_scope','blocking',l05_scope),
+         ('help_image','observing',help_image)]
 
 
 def main():
     from eval.l06_runner import run
     parser=argparse.ArgumentParser();parser.add_argument('--report-path',required=True)
+    parser.add_argument('--opening',type=int,default=8);parser.add_argument('--reserved',type=int,default=3)
     args=parser.parse_args()
-    report,code=run(ENTRIES,report_path=args.report_path)
+    entries=[(n,level,(lambda:stock_consistency(args.opening,args.reserved)) if n=='l06_stock_consistency' else fn) for n,level,fn in ENTRIES]
+    report,code=run(entries,report_path=args.report_path)
     print(json.dumps(report,ensure_ascii=False,indent=2));return code
 
 
