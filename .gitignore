@@ -244,32 +244,26 @@ data/
 *.pptx.inspect.ndjson
 ~$*.pptx
 
-# L09-L16 course materials stay local until publication is authorized
-/docs/courses/L09*
-/docs/courses/L1[0-6]*
-/docs/courses/l09*
-/docs/courses/l1[0-6]*
-/docs/courses/labs/L09*
-/docs/courses/labs/L1[0-6]*
-/docs/courses/labs/l09*
-/docs/courses/labs/l1[0-6]*
-/docs/courses/tasks/L09*
-/docs/courses/tasks/L1[0-6]*
-/docs/courses/tasks/l09*
-/docs/courses/tasks/l1[0-6]*
-/docs/courses/slides/L09*
-/docs/courses/slides/L1[0-6]*
-/docs/courses/slides/l09*
-/docs/courses/slides/l1[0-6]*
-/docs/courses/assets/L09*
-/docs/courses/assets/L1[0-6]*
-/docs/courses/assets/l09*
-/docs/courses/assets/l1[0-6]*
-/docs/courses/cases/L09*
-/docs/courses/cases/L1[0-6]*
-/docs/courses/cases/l09*
-/docs/courses/cases/l1[0-6]*
-/docs/reference/L09*
-/docs/reference/L1[0-6]*
-/docs/reference/l09*
-/docs/reference/l1[0-6]*
+# L13-L16 course materials stay local until publication is authorized
+/docs/courses/L1[3-6]*
+/docs/courses/l1[3-6]*
+/docs/courses/labs/L1[3-6]*
+/docs/courses/labs/l1[3-6]*
+/docs/courses/tasks/L1[3-6]*
+/docs/courses/tasks/l1[3-6]*
+/docs/courses/slides/L1[3-6]*
+/docs/courses/slides/l1[3-6]*
+/docs/courses/assets/L1[3-6]*
+/docs/courses/assets/l1[3-6]*
+/docs/courses/cases/L1[3-6]*
+/docs/courses/cases/l1[3-6]*
+/docs/reference/L1[3-6]*
+/docs/reference/l1[3-6]*
+
+# L09-L12 local experiment outputs; PowerPoint files remain ignored
+/docs/courses/L09/assets/latest/**/*.json
+/docs/courses/L1[0-2]/assets/latest/**/*.json
+/docs/courses/L09/assets/latest/**/*.txt
+/docs/courses/L1[0-2]/assets/latest/**/*.txt
+/docs/courses/L09/assets/latest/**/*.diff
+/docs/courses/L1[0-2]/assets/latest/**/*.diff
