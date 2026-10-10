@@ -1,443 +1,482 @@
-# 选做实验｜从 0 开始搭建个人 AI 研发工作台
+# L00｜从 0 开始搭建个人 AI 研发工作台
 
-这次从空目录做出一个能用的小工作台：**登记一件事 → 保存处理结果 → 停止程序 → 重启后查回。**程序由你和 Codex 建设，本实验不提供成品源码。
+> **参考选做**：课程已提供工作台项目壳。建议另外创建一个新的工作台项目，依据本文档，与 Codex 一起从 0 开始搭建。
 
-这是正式课程之外的独立选做实验，用来体验浏览器、Python 和 SQLite 的关系，不计入 L00 通过标准，也不作为 L01 的代码基线。正式准备先按 [L00 手册](./L00｜课前准备：装好工具，跑通第一次环境自检.md)完成参考仓库、自检和只读核验。做过本实验的同学保留 V0.0 项目、Spec 与真实记录；正式 L01 仍按其手册创建隔离起点，不用这个项目替代要求的红灯、自举与审核证据。
+使用现成壳时，完成[环境准备](./L00｜课前准备：装好工具，跑通第一次环境自检.md)后，直接进入 [L01 的课程壳入口](../L01/实践操作手册.md#provided-shell)。下面六步供选择从 0 搭建的学员使用。
 
-已按旧版把实验记录保存为自己 V0.0 项目内的 `lesson-00-submission/L00-环境自检.md` 时，继续保留并使用原文件，在开头注明“V0.0 独立实验记录”。下文的新记录路径按你的原路径替换，不覆盖旧证据；正式 L00 的自检记录另存到课程参考仓库。
+完成后，你的工作台应能**打开首页、查清运行位置、在断线后恢复检查**。后续课程可以继续在这个新项目里逐步完善功能。
 
-## 先看架构，再开始建设
+按六步完成：**准备目录 → 确认架构 → 分两轮建设 → 亲自检查 → 保存版本 → 进入 L01。** 图帮助你理解过程；提示词交给 Codex，命令输入终端。下方 ImageGen 图均为教学示意。
 
-动手前先看清：谁负责判断，程序由哪几部分组成，数据保存在哪里。下面先给全课程的目标关系，再给这次要实现的最小结构。
+## 先看懂要搭什么
 
-### 全课程：先建工作台，再交付 ERP
+工作台有两个配合的部分：**Python 服务处理请求，网页显示结果。** 先看一次运行怎样把它们接起来。
 
-![全课程建设目标：你与 Codex 先建设个人工作台，再通过工作台组织 FlowERP 交付，问题与反馈回到工作台](../assets/l00-architecture/course-mainline.png)
+![图 1 从启动服务到网页读取本次运行信息](../assets/l00-imagegen/03-one-request.png)
 
-这张图是**逐讲建设目标**。先让 Codex 协助你建工作台，再逐步补齐受控执行与检查能力；到 L04，通过工作台首次交付 FlowERP。工作台保存研发任务与交付证据，FlowERP 保存客户业务数据，二者各有自己的项目和数据库。
+沿图读两条线：上面是**启动服务**，下面是**页面取回结果**。服务先提供网页文件；页面中的 JavaScript 再请求 `/api/health`，取回服务类型、运行目录和计划数据库位置。
 
-### 本实验 V0.0：程序怎样运行
+分开以后，改样式找 `styles.css`，改启动参数找 `cli.py`，增加接口找 `workbench_server.py`。本讲只报告数据库位置，尚不创建数据库。
 
-![V0.0 目标运行结构：浏览器提交输入，app.py 处理并写入 SQLite 数据文件，查询时读回记录并返回页面](../assets/l00-architecture/personal-workbench-v0.png)
+### 从一开始采用当前项目的目录结构
 
-读图顺序是**左 → 中 → 右**：你在浏览器输入事项，`app.py` 检查输入并写入数据文件；查询时沿反向箭头读回记录，再返回页面。
+个人项目使用 `CodexFDE/` 作为目录名，例如 `D:\work\learning\CodexFDE`。九个一级目录和职责与参考项目对应：
 
-默认网址是 `http://127.0.0.1:8001/`，数据文件在自己项目的 `.runtime/workbench.db`。SQLite 由 Python 程序直接使用，无须另启动服务。停止程序后文件仍在；重启或换端口时，继续读取同一个文件。
+| 当前状态 | 位置 |
+|---|---|
+| 本讲接通 | `main.py`、`workbench/`、`workbench_web/`、`tests/` |
+| 保存设计与说明 | `docs/`；根目录的配置与定位文件 |
+| 后续补功能 | `agent/`、`eval/`、`scripts/`、`deploy/` |
+| 可选扩展 | `harness_web/`，完整驾驶舱默认 8010 |
 
-**本实验先实现图中的结构，后面用四项现场检查验证它。**
+<details>
+<summary>完整目录树：建设时展开，逐项核对</summary>
 
-建设时，你在终端 A 与 Codex 生成、修复源码；运行时，你在终端 B 启动 `app.py`，用浏览器登记事项并填写核对后的实际结果。V0.0 暂不从页面自动调用 Codex，也不接入 FlowERP。
+```text
+CodexFDE/
+├── main.py                         # 根启动入口，本讲接到已有 CLI
+├── AGENTS.md                       # 先写项目定位，L02 再制定并实验协作规则
+├── pyproject.toml                  # 包配置与命令入口
+├── README.md                       # 本项目的运行与建设状态
+├── .gitignore
+├── workbench/                      # 工作台后端
+│   ├── __init__.py
+│   ├── cli.py
+│   ├── runtime_paths.py
+│   └── workbench_server.py
+├── workbench_web/                  # 必做工作台页面，默认 8001
+│   ├── index.html
+│   ├── app.js
+│   └── styles.css
+├── tests/                         # 本讲的真实运行检查
+│   ├── __init__.py
+│   └── test_workbench_server.py
+├── agent/                         # 预留返工 Loop 与状态图
+│   └── __init__.py
+├── eval/                          # 预留统一质量检查
+│   └── __init__.py
+├── docs/                          # 本项目设计与使用说明
+│   ├── README.md
+│   └── reference/
+│       ├── README.md
+│       └── 工作台具体设计.md
+├── scripts/                       # 预留检查与维护脚本
+│   └── .gitkeep
+├── deploy/                        # 预留部署与冷启动
+│   └── .gitkeep
+└── harness_web/                   # 可选完整驾驶舱，本讲不启用
+    └── __init__.py
+```
 
-图版可直接阅读；需要修改时使用可编辑源文件：[课程目标图](../assets/l00-architecture/course-mainline.drawio)、[V0.0 运行结构图](../assets/l00-architecture/personal-workbench-v0.drawio)。
+预留目录中的 `__init__.py` 只说明用途；`.gitkeep` 让空目录能随 Git 保存。`bootstrap.py`、`spec.py`、`task_store.py`、`eval/harness.py`、`agent/loop.py` 等在后续课程建设。
 
-接下来按 **确认需求与结构 → 生成源码 → 运行检查** 推进。到第 2 步，把图中各部分的职责和数据位置写入需求文件，确认后再开发。
+`main.py` 本讲转交 CLI；`AGENTS.md` 先记定位，L02 再完善规则。自己的架构写在 `docs/reference/工作台具体设计.md`。运行数据放在 `.runtime/workbench/`，不提交；`.github/`、`.codex/` 等配置按相关课程补齐。
 
-先完成[工具准备](./L00｜课前准备：装好工具，跑通第一次环境自检.md#1-装好四个工具)：Python 3.11、Git、VS Code 和 Codex CLI 都应可用。本文的操作从“工具已经装好”开始。
+</details>
 
-## 先分清操作位置
+<details>
+<summary>完整架构图：需要核对九个目录的分工时展开</summary>
 
-本手册统一使用 Codex CLI。第 1 步在 VS Code 建立终端 B，第 2 步再建立终端 A；下表先说明它们的分工。
+![工作台九个目录及本讲实现、预留与可选扩展](../assets/l00-architecture/personal-workbench-v0.png)
 
-| 位置 | 用来做什么 | 怎样辨认 |
-|---|---|---|
-| 终端 A：Codex | 粘贴本手册的对话消息，讨论需求和修改程序 | 启动 `codex` 后看到的是 Codex 对话界面 |
-| 终端 B：运行 | 输入 Python、Git 命令，启动和停止工作台 | 未启动服务时，能看到 PowerShell 或 zsh 的命令提示符 |
-| VS Code 文件区 | 打开需求、源码和记录文件，修改后保存 | 左侧文件列表属于自己的新项目 |
-| 浏览器 | 新建事项、保存结果、检查重启恢复 | 访问本次启动日志给出的网址 |
+[可编辑源图](../assets/l00-architecture/personal-workbench-v0.drawio)。独立 FlowERP 从 L04 接入，业务代码和数据库保存在客户仓库。
 
-**自然语言消息发到 A；运行命令输入 B。**B 中的服务正在运行时，不再输入其他命令。代码块不包含终端提示符；Windows 只用 PowerShell 块，Mac 只用 zsh 块。
+</details>
 
-## 第 1 步：建立自己的空项目和运行环境
+<details>
+<summary>连接约定：给 Codex 形成架构计划时使用</summary>
 
-### 1.1 在系统终端创建目录
+<a id="connection-contract"></a>
 
-Windows 打开 PowerShell，Mac 打开“终端”。下面使用 `work/my-ai-workbench`；已经存在同名项目时，**续做请看文末的恢复方法；首次练习则将代码中的 `my-ai-workbench` 换成新名字**。
+### 连接约定
 
-**Windows（PowerShell），整段运行：**
+以下约定只写一次。第 2 步让 Codex 将它纳入 `docs/reference/工作台具体设计.md`，后续建设提示词都读取该设计。
+
+- `workbench/cli.py` 提供 `main(argv=None) -> int` 与模块启动入口。`serve-workbench` 支持 `--host`、`--port`、`--runtime-dir`，默认地址为 `127.0.0.1:8001`。
+- 根目录 `main.py` 提供 `main(argv=None) -> int`，将参数交给 CLI；无参数时补入 `serve-workbench`。本讲的根入口不导入后续桌面模块，不启动 FlowERP。`AGENTS.md` 只记录定位和设计文件位置，正式协作规则留到 L02 实验。
+- `workbench/runtime_paths.py` 提供 `service_runtime(surface, explicit=None, *, root=ROOT) -> Path`。`ROOT` 从源码位置确定项目根目录；新项目默认运行目录为 `.runtime/workbench`，显式位置解析为绝对路径，不创建目录。
+- CLI 先解析运行目录，再传给服务。服务提供 `WorkbenchApp.health()`、`make_handler(app)`，以及下面的启动函数：
+
+```text
+serve(host="127.0.0.1", port=8001, runtime_dir=".runtime", *,
+      enable_code_execution=False,
+      erp_url="http://127.0.0.1:8000",
+      enable_advanced_runtime=False)
+```
+
+后三项参数为后续功能保留，本次不启用。CLI 总会传入解析后的绝对运行目录；上面的 `.runtime` 是直接调用服务函数时的默认值，命令行默认仍为个人项目的 `.runtime/workbench`。
+
+- 页面目录依据源码位置找到 `workbench_web/`。只提供 `GET /`、`/app.js`、`/styles.css` 和 `/api/health`；未知路径返回 404，写入请求被拒绝。
+- 健康信息包含 `surface="workbench"`、`capabilities=["shell"]`、`runtime`、`database` 和实际的 `database_exists`。`database` 为本次运行目录下的 `workbench.db`；不创建或读写数据库，也不声明任务已经完成。
+- 页面加载和点击“重新检查”都请求健康接口。核对响应身份，使用 `textContent` 显示数据；失败时清除旧路径确认，重启服务后能重新检查。
+
+</details>
+
+## 第 1 步：准备一个自己的空项目
+
+先完成[环境准备](./L00｜课前准备：装好工具，跑通第一次环境自检.md)，再分清两个位置：
+
+![图 2 参考仓库提供课程与解释器 个人项目保存自己建设的源码](../assets/l00-imagegen/01-workspaces.png)
+
+左边用来**读材料、借 Python 环境**；右边用来**保存自己的设计、源码和记录**。两个目录都叫 `CodexFDE`，所在位置不同。
+
+选择参考仓库之外的新目录或空目录，例如 `D:\work\learning\CodexFDE`。下面只运行自己系统的一组命令，已有实验保留原内容。
+
+<details>
+<summary>Windows：在参考仓库根目录准备个人项目</summary>
+
+使用 PowerShell，整段执行。提示输入路径时，粘贴个人项目的绝对路径，不加引号。
 
 ```powershell
 & {
     $ErrorActionPreference = 'Stop'
-    $projectFolder = Join-Path $env:USERPROFILE 'work\my-ai-workbench'
-    if (Test-Path -LiteralPath $projectFolder) { throw '目录已存在，请换新名字或按文末方法续做。' }
-    New-Item -ItemType Directory -Path $projectFolder -Force | Out-Null
-    Set-Location -LiteralPath $projectFolder
-    Get-Location
-    Get-ChildItem -Force
+    $courseRoot = (Get-Location).Path
+    $coursePython = (Resolve-Path -LiteralPath .\.venv\Scripts\python.exe).Path
+    . .\.venv\Scripts\Activate.ps1
+    $personalRoot = Read-Host '输入新个人项目的绝对路径'
+    if (-not [System.IO.Path]::IsPathRooted($personalRoot)) { throw '请输入绝对路径。' }
+    $personalRoot = [System.IO.Path]::GetFullPath($personalRoot)
+    if ($personalRoot -eq $courseRoot -or $personalRoot.StartsWith($courseRoot + [System.IO.Path]::DirectorySeparatorChar, [System.StringComparison]::OrdinalIgnoreCase)) { throw '个人项目应放在参考仓库之外。' }
+    if (Test-Path -LiteralPath $personalRoot) {
+        if (-not (Test-Path -LiteralPath $personalRoot -PathType Container)) { throw '目标不是目录。' }
+        if (Get-ChildItem -LiteralPath $personalRoot -Force) { throw '目标非空，请选择新目录。' }
+    } else {
+        New-Item -ItemType Directory -Path $personalRoot | Out-Null
+    }
+    Set-Location -LiteralPath $personalRoot
+    git init
+    if ($LASTEXITCODE -ne 0) { throw 'Git 初始化失败，请先排查。' }
+    Write-Host "参考材料：$courseRoot"
+    Write-Host "个人源码：$((Get-Location).Path)"
+    & $coursePython -X utf8 -c "import sys; print('Python:', sys.executable)"
 }
 ```
 
-**macOS（zsh），整段运行：**
+</details>
+
+<details>
+<summary>macOS：在参考仓库根目录准备个人项目</summary>
+
+使用 zsh，整段执行。输入完整路径，例如 `/Users/你的用户名/work/learning/CodexFDE`，不使用 `~` 缩写。
 
 ```zsh
-create_project() {
-  local projectFolder="$HOME/work/my-ai-workbench"
-  [ ! -e "$projectFolder" ] || { printf '目录已存在，请换新名字或按文末方法续做。\n'; return 1; }
-  mkdir -p "$projectFolder" || return 1
-  cd "$projectFolder" || return 1
-  pwd
-  ls -A
+prepare_workbench_project() {
+  local courseRoot="$(pwd -P)"
+  local coursePython="$courseRoot/.venv/bin/python"
+  local personalRoot
+  [ -x "$coursePython" ] || { printf '先完成参考仓库的环境准备。\n'; return 1; }
+  source "$courseRoot/.venv/bin/activate" || return 1
+  printf '输入参考仓库之外的新个人项目绝对路径：\n'
+  read -r personalRoot || return 1
+  case "$personalRoot" in /*) ;; *) printf '请输入绝对路径。\n'; return 1 ;; esac
+  personalRoot=$("$coursePython" -X utf8 -c 'import sys; from pathlib import Path; print(Path(sys.argv[1]).resolve())' "$personalRoot") || return 1
+  case "$personalRoot/" in "$courseRoot/"*) printf '个人项目应放在参考仓库之外。\n'; return 1 ;; esac
+  if [ -e "$personalRoot" ]; then
+    [ -d "$personalRoot" ] || { printf '目标不是目录。\n'; return 1; }
+    [ -z "$(ls -A "$personalRoot")" ] || { printf '目标非空，请选择新目录。\n'; return 1; }
+  else
+    mkdir -p "$personalRoot" || return 1
+  fi
+  cd "$personalRoot" || return 1
+  git init || return 1
+  printf '参考材料：%s\n个人源码：%s\n' "$courseRoot" "$PWD"
+  "$coursePython" -X utf8 -c "import sys; print('Python:', sys.executable)"
 }
-create_project
+prepare_workbench_project
 ```
 
-**看到什么才继续：**终端显示新项目的绝对路径，文件列表为空。先把这段输出复制到记事本或纯文本记录中，稍后转入项目记录。若报错，停在这里。
+</details>
 
-在同一个系统终端执行两端通用命令：
+记下输出的两个目录和 Python 路径。在 Codex 与编辑器中打开**个人目录**。
+
+**可以继续的条件：**个人目录只有 Git 起点，尚没有程序；终端使用参考仓库的 `.venv`。下面的提示词发到 Codex 对话框，运行命令则输入终端。
+
+## 第 2 步：与 Codex 把架构说清楚
+
+三轮协作都使用同一份设计：先确认怎么搭，再让 Codex 分两轮实现。
+
+![图 3 人与 Codex 的三轮协作 先确认架构 再建设后端与页面](../assets/l00-imagegen/02-codex-collaboration.png)
+
+**你决定范围并核对结果，Codex 负责形成方案和实现。** 第 1 轮产物是 `docs/reference/工作台具体设计.md`；后面两轮继续读取它。
+
+### 提示词 1：设计项目骨架
+
+先填写参考仓库路径和第 1 步输出的 Python 路径，再发送：
 
 ```text
-code .
+请与我一起搭建一个在本机运行的个人 AI 研发工作台。
+先完成项目结构、启动入口和首页：能查看服务的运行位置，
+连接失败时有明确提示，服务恢复后可以重新检查。
+任务管理、执行与审核功能以后逐步增加。
+
+参考仓库绝对路径：〈填入你的参考仓库路径〉。
+本次检查的 Python 绝对路径：〈填入第 1 步输出的解释器路径〉。
+个人源码写在当前项目，请先核对当前绝对路径。
+将这两个位置和个人项目路径记入设计；后续执行检查使用该解释器，
+从个人项目根目录加载源码，核对 sys.executable 与 workbench.__file__。
+
+请读取参考仓库中的
+docs/courses/L00/从0开始搭建个人AI研发工作台.md 的“连接约定”，
+并只读核对参考仓库的根目录、main.py、AGENTS.md、pyproject.toml，
+以及 workbench/、workbench_web/、tests/、agent/、eval/、
+docs/、scripts/、deploy/、harness_web/ 的实际位置和职责。
+
+采用文档中的九个一级目录和根文件位置，为当前空项目设计骨架。
+明确本次实现、后续预留、可选扩展；后续功能沿同一项目增长。
+用一次“启动服务→打开首页→查看运行信息”的过程说明：
+每个文件负责什么、参数和结果怎样传递，
+以及以后增加任务管理时可以在哪些位置扩展。
+
+将目标、目录树、调用顺序、连接约定、与参考项目的对应表和检查方法
+保存到当前项目的 docs/reference/工作台具体设计.md。
+只创建这个设计文件及其父目录；不提前实现预留功能。
+不要复制参考实现；先让我理解并确认计划，再开始编程。
 ```
 
-VS Code 应打开刚才的空目录。若 `code` 不可用，用 VS Code“文件 → 打开文件夹”选择终端刚显示的绝对路径。
+读完设计，用自己的话回答：**谁处理启动参数？页面怎样取到运行信息？任务管理以后放哪里？** 看不懂时，让 Codex 沿图 1 解释一次请求，再把自己的理解和确认范围写入设计。
 
-### 1.2 在 VS Code 的终端 B 创建环境
+**可以继续的条件：**设计文件已保存，其中规划的九个目录、根入口和核心文件位置与参考项目对应；你已确认本次范围。此时尚未建设程序，正式的任务需求合同将在 L01 另行形成。
 
-在 VS Code 选择“终端 → 新建终端”，把这个终端作为 B。Windows 选择 PowerShell，Mac 使用 zsh。**逐行运行，前一行报错就停下。**
+## 第 3 步：按计划分两轮建设
 
-**Windows（PowerShell）：**
+按图 3 的第 2、3 轮继续：**先建后端，再接页面。** 两轮都在当前个人项目执行，读取已确认的设计。
 
-```powershell
-Get-Location
-py -3.11 -m venv .venv
-.\.venv\Scripts\python.exe -X utf8 -c "import sys, sqlite3; print(sys.version); print(sys.executable); print('SQLite:', sqlite3.sqlite_version)"
-$LASTEXITCODE
-git init
-```
+### 提示词 2：建设后端
 
-**macOS（zsh）：**
+这一轮先接通后端，页面在下一轮建设。先抓住三个文件的分工：
 
-```zsh
-pwd
-python3.11 -m venv .venv
-./.venv/bin/python -X utf8 -c "import sys, sqlite3; print(sys.version); print(sys.executable); print('SQLite:', sqlite3.sqlite_version)"
-echo $?
-git init
-```
-
-先核对第一行路径属于新项目，再创建环境。Python 应为 `3.11.x`，解释器路径包含这个项目的 `.venv`，能显示 SQLite 版本，检查退出码为 `0`。这里直接调用 `.venv` 中的 Python，不需要另做环境激活。
-
-### 1.3 现在就开始留记录
-
-在 VS Code 左侧文件区新建文件夹 `experiment-v0-records`，在其中新建 `V0.0-独立实验.md`。复制下面的空白记录结构到这个文件并保存：
-
-```markdown
-# V0.0 独立实验记录
-- 学习署名与日期：
-- 当前步骤与待解决问题：
-## 1. 空目录与环境
-- 项目绝对路径、创建后真实文件列表：
-- Python、SQLite 版本与解释器路径：
-- Codex 入口与实际读取目录：
-## 2. 需求与范围决定
-- 管理的一件小事、完成条件、一个范围决定及理由：
-- 浏览器、app.py、SQLite 各自职责：
-- WORKBENCH_SPEC.md 的本人署名与确认日期：
-## 3. 源码、语法与启动
-- 实际生成文件、检查命令、输出与退出码：
-- 启动命令、访问网址、数据库路径：
-## 4. 四项现场检查
-- 新建与查询：实际编号、内容、状态：
-- 空标题：错误、前后事项数、原事项状态：
-- 结果与状态：真实结果、两次本人选择及查回结果：
-- 重启恢复：停止与重启命令、同一编号前后对照：
-## 5. 两项文件核验
-- Codex 对保存、重启读取的结论与代码位置：
-- 本人打开看到的依据、吻合或未确认项：
-## 6. 失败、修复与保存
-- 原错误、修改决定、同一检查的修复后结果：
-- Git 提交编号、未解决问题：
-- 保存后关闭并重新打开记录的结果：
-```
-
-先填第 1 节：项目绝对路径、刚才的空目录输出、Python 与 SQLite 输出。后面每完成一步就补记，不等到最后凭记忆填写。现在已有环境和记录文件，**工作台程序源码仍为零**。这里使用独立实验记录，正式 L00 的环境自检模板仍用于课程参考仓库。
-
-**本步完成：**自己的项目已打开，B 能运行本项目的 Python，记录已保存。
-
-## 第 2 步：在 Codex 中确认需求，保存第一份 Spec
-
-### 2.1 打开终端 A
-
-在 VS Code 再选择一次“终端 → 新建终端”，把新终端作为 A。先运行自己系统的路径检查：Windows 用 `Get-Location`，Mac 用 `pwd`。路径应与 B 相同。然后运行两端通用命令：
-
-```text
-codex -C .
-```
-
-首次使用按提示完成登录。出现 Codex 输入区后，**把下面这段作为对话消息发送，不要当作 PowerShell/zsh 命令运行**：
-
-```text
-我要在当前新项目中，从零建设个人 AI 研发工作台基础版 V0.0。
-先只读报告当前目录的绝对路径和已有文件，确认尚无工作台程序。
-本次先讨论需求，不写 app.py，不复制其他仓库的源码。
-
-我先用它管理一件能现场完成的小事：核对本项目的 Python 版本。
-第一版需要登记事项、查看事项、保存实际结果和由人选择的状态，重启后仍能查回。
-请每轮只问一个问题，依次确认：
-1. 这件事的目标与完成条件；
-2. 需要保存的信息，以及浏览器、app.py、SQLite 各负责什么；
-3. 怎样现场检查保存、空标题拒绝和重启恢复。
-确认这三件事后，请汇总我的回答，列出仍待确认的问题，暂不开发。
-```
-
-先核对它报告的目录。若不是自己的项目，退出 Codex（输入 `/quit`），回到正确目录再启动。若它未经确认就开始写程序，要求暂停，先完成需求确认。
-
-回答时可使用下面的练习数据；Python 版本必须来自第 1 步的真实输出：
-
-| 要确认什么 | 本次练习的填写依据 |
+| 文件 | 负责什么 |
 |---|---|
-| 标题 | 核对本项目的 Python 版本 |
-| 目标 | 确认本项目使用 Python 3.11 |
-| 完成条件 | 核对第 1 步的实际输出，记录完整版本；重启后仍能查到 |
-| 保存的信息 | 编号、标题、目标、完成条件、创建时间、实际结果、状态 |
-| 状态 | 待处理、处理中、已完成；由自己选择 |
+| `cli.py` | 接收终端启动命令和参数，再调用服务 |
+| `runtime_paths.py` | 确定运行数据的位置，将路径返回给启动命令 |
+| `workbench_server.py` | 接收浏览器请求，返回本次运行信息 |
 
-本次先用版本核对走通全程。四项检查完成后，再换成自己的小事练习。待确认问题没有解决时，继续回答，不进入开发。
+根入口 `main.py` 转交 `cli.py`。本轮检查语法、命令帮助和源码位置；首页能否打开，在下一轮接好页面后检查。
 
-### 2.2 让需求真正写入文件
+展开后，将完整提示词发送给 Codex。文件清单与工程配置都包含在其中，阅读时先把握上面的分工，再按下方命令核对结果。
 
-确认汇总正确后，在 A 发送：
-
-```text
-请把刚才确认的需求保存为当前项目根目录的 WORKBENCH_SPEC.md。
-写清目标、暂缓的能力、保存字段，以及浏览器 → app.py → SQLite 的最小结构。
-浏览器负责输入和显示，app.py 负责页面、输入检查和数据读写，数据保存到 app.py 所在项目的 .runtime/workbench.db。
-写清四项完成条件：
-新建后能查回；空白标题被拒绝且不增加事项；实际结果与人工选择的状态能保存；重启后原编号、内容、结果和状态不变。
-本次暂不接入 ERP，不自动调用 Codex，不自动判断事项完成。
-署名与确认日期留“待本人填写”，不要替我签署。仍然不要写程序。
-```
-
-在 VS Code 左侧打开 `WORKBENCH_SPEC.md`。核对内容是否符合自己的回答；对照开头的图，指出页面入口、处理输入的程序和保存数据的文件。若职责或数据路径不一致，先修改，再填写自己的学习署名和确认日期，保存。若找不到文件，先要求 Codex 保存到本项目，不用对话文字冒充文件。
-
-然后在 A 发送：
+<details>
+<summary>提示词 2：展开复制完整后端任务与工程配置</summary>
 
 ```text
-我已打开并确认 WORKBENCH_SPEC.md，署名和日期已由我填写。
-请重新读取保存后的文件，下一步以这份文件为建设依据。
+按我已确认的 docs/reference/工作台具体设计.md 建设项目骨架和后端。
+使用 Python 3.11 标准库，遵守计划中的连接约定。
+所有检查从个人项目根目录运行，使用设计中记录的 Python 绝对路径。
+
+本轮写入：
+workbench/__init__.py
+workbench/cli.py
+workbench/runtime_paths.py
+workbench/workbench_server.py
+main.py、AGENTS.md、pyproject.toml、README.md、.gitignore
+agent/__init__.py、eval/__init__.py、harness_web/__init__.py
+docs/README.md、docs/reference/README.md
+scripts/.gitkeep、deploy/.gitkeep
+
+预留目录只说明用途，不创建未来功能的空模块。
+AGENTS.md 只写项目定位和架构文件位置，正式规则后续再制定。
+main.py 无参数时启动已有工作台 CLI；不导入未建设的桌面模块。
+保留已确认的设计文件，不用参考成熟设计覆盖个人设计。
+
+接通“启动命令→运行目录解析→HTTP服务→健康信息”。
+服务启动时打印实际 URL、源码根目录和运行目录。
+暂不保存事项或创建数据库，页面文件下一轮再建设。
+
+README 写清当前范围和启动方法。
+pyproject.toml 沿参考项目的基础配置：Python>=3.10、无第三方运行依赖，
+构建依赖 setuptools>=68 与 wheel，构建后端 setuptools.build_meta，
+py-modules 包含 main，package-data 用 "*" 包含 html/css/js，
+包发现包含 workbench*、eval*、agent*、harness_web*。
+沿用发行名 flowerp-fde-camp，并在 README 解释它不是 flowerp 导入包。
+登记 codexfde=main:main、flowerp-workbench=workbench.cli:main；
+尚未建设的 harness-workbench 命令不登记。
+.gitignore 排除 .venv、.runtime、
+字节码和 lesson-*-submission/。
+
+完成后检查语法、CLI 帮助和实际模块位置。
+报告修改文件、真实命令、退出码，以及仍未完成的部分。
 ```
 
-**本步完成：**需求文件能在自己的项目打开，四项检查已写清；记录中能说明自己的一个范围决定。
+</details>
 
-## 第 3 步：生成源码，检查文件和语法
-
-在同一个 A 对话中发送：
+完成后，在个人项目根目录运行：
 
 ```text
-请依据我确认的 WORKBENCH_SPEC.md，在当前新项目从零实现 V0.0。
-创建 app.py、README.md、.gitignore；不复制课程或其他项目的实现。
-
-实现约定：
-1. 按 Spec 中确认的结构实现：使用 Python 3.11 标准库，以 http.server 提供页面、sqlite3 保存数据，不安装第三方库。在 app.py 内用职责清楚的函数区分页面生成、输入检查和数据读写，暂不拆成多个程序。
-2. python app.py 启动，默认监听 127.0.0.1:8001，支持 --port 8002 这类自定义端口。
-3. 首页根路径 / 显示“个人 AI 研发工作台 V0.0”和“事项与决策”。
-4. 新建表单包含标题、目标、完成条件，按钮叫“保存事项”。事项列表显示编号、标题、状态，并有“查看”入口。新建后状态为“待处理”。
-5. 详情显示原内容；可填写“实际结果”，选择“待处理”“处理中”“已完成”，点击“保存结果”。状态只能来自人的选择。
-6. 空白标题提示错误且不新增事项；未知编号不能修改其他事项。SQL 参数化，显示用户输入时做 HTML 转义。
-7. 数据保存在 app.py 所在项目的 .runtime/workbench.db；首次列表为空，重启不清库、不插入示例事项。
-8. 启动成功后在终端显示项目绝对路径、数据库绝对路径和访问网址；README 写出真实启动命令。
-9. .gitignore 排除 .venv/、.runtime/、__pycache__/、experiment-v0-records/。
-
-可以检查语法，但不要启动持续运行的服务或代做 Git 提交；启动、页面检查和版本保存由我在终端 B 完成。
-完成后列出实际写入的文件与未解决问题，不替我填写检查结果或宣布验收通过。
+python -X utf8 -m compileall -q workbench
+python -X utf8 -m workbench.cli --help
+python -X utf8 main.py --help
+python -X utf8 -c "import sys, workbench; print('Python:', sys.executable); print('源码:', workbench.__file__)"
 ```
 
-等 Codex 完成后，切到 **B**。B 此时应显示命令提示符，目录是自己的项目。**先运行文件检查，四个文件都存在才运行下一行语法检查。**
+应看到 `serve-workbench` 命令；根入口帮助与 CLI 相同；解释器来自参考环境，`workbench` 来自个人项目。失败时保留输出，请 Codex 修复本轮文件，再重跑。此时页面尚未建设，不要求首页已经能打开。
 
-**Windows（PowerShell）：**
-
-```powershell
-Get-Item .\WORKBENCH_SPEC.md, .\app.py, .\README.md, .\.gitignore
-.\.venv\Scripts\python.exe -m py_compile app.py
-$LASTEXITCODE
-```
-
-**macOS（zsh）：**
-
-```zsh
-ls -l WORKBENCH_SPEC.md app.py README.md .gitignore
-./.venv/bin/python -m py_compile app.py
-echo $?
-```
-
-文件检查应列出四个文件；编译检查应无错误、退出码为 `0`。文件缺失或语法失败就停下，把实际输出发回 A 修复，再在 B 运行同一检查。
-
-打开 `README.md` 找到启动方法和数据位置；打开 `.gitignore`，确认第 9 条的四个目录已被排除。语法通过只说明程序能解析，下一步还要实际运行。
-
-**本步完成：**四个文件在自己的项目中齐全，语法检查通过。
-
-## 第 4 步：在 B 启动，用浏览器打开本次程序
-
-**Windows（PowerShell），终端 B：**
-
-```powershell
-.\.venv\Scripts\python.exe -X utf8 app.py
-```
-
-**macOS（zsh），终端 B：**
-
-```zsh
-./.venv/bin/python -X utf8 app.py
-```
-
-先看启动日志：项目路径应是自己的目录，数据库应在该项目的 `.runtime/workbench.db`，访问网址应是 `http://127.0.0.1:8001/`。**日志报错或程序已经退出时，不继续打开旧页面作检查。**
-
-保持 B 运行，在浏览器地址栏输入日志中的网址并回车。应看到 V0.0 标题、“事项与决策”和空事项列表。B 没有返回命令提示符，是正常运行状态；接下来在浏览器操作。
-
-### 8001 被占用时
-
-若启动日志明确报端口占用，原进程已退出，再在 B 使用下面的完整命令；若本次程序仍在运行，先在 B 按 `Ctrl+C`（Mac 为 `Control+C`）停止它。
-
-**Windows（PowerShell）：**
-
-```powershell
-.\.venv\Scripts\python.exe -X utf8 app.py --port 8002
-```
-
-**macOS（zsh）：**
-
-```zsh
-./.venv/bin/python -X utf8 app.py --port 8002
-```
-
-这时浏览器改用 `http://127.0.0.1:8002/`，后续启动、检查和重启都沿用 8002。其他报错按文末方法修复。
-
-**本步完成：**日志的项目和网址能对上浏览器页面，实际启动命令与数据路径已写入记录。
-
-## 第 5 步：亲自完成四项检查
-
-### 检查 1：新建后能查回
-
-在浏览器的新建表单填写：
-
-- 标题：`核对本项目的 Python 版本`
-- 目标：`确认本项目使用 Python 3.11`
-- 完成条件：`核对实际版本输出，保存完整版本，重启后仍能查回`
-
-点击“保存事项”，在列表记下**实际编号**，点击该事项的“查看”。逐项核对输入内容和“待处理”状态。在个人记录中填编号、标题和实际结果。页面刷新后仍要能通过这个编号找到同一事项。
-
-### 检查 2：空标题不增加事项
-
-回到列表，先记下当前事项数。尝试再新建一项：标题只输入空格，目标和完成条件仍填写上面的内容，点击“保存事项”。应有明确错误提示。
-
-再回列表并刷新：事项数没有增加，检查 1 的事项及内容仍在。只看见错误提示、不核对列表，不算完成这项检查。
-
-### 检查 3：保存真实结果和自己的状态选择
-
-打开检查 1 的同一编号。把第 1 步真实输出中的完整 Python 版本写入“实际结果”，例如 `已核对，本项目实际使用 Python 3.11.x`，其中 `x` 必须替换为真实值。
-
-先选“处理中”，点击“保存结果”，返回列表，再打开该编号核对。完成版本核对后，再改选“已完成”并保存，返回列表重新打开。**两次状态都应来自自己的选择，实际结果仍在。**
-
-把真实结果和最终状态写入个人记录。不直接照抄示例版本或让 Codex 代填检查通过。
-
-### 检查 4：停止后重启，同一记录仍在
-
-1. 先在记录中写下这个编号、结果和状态。
-2. 切到 B，按 `Ctrl+C` / `Control+C`，直到命令提示符重新出现。
-3. 在 **同一目录**运行第 4 步的原启动命令；使用 8002 的同学保留 `--port 8002`。
-4. 回浏览器刷新，找到同一编号，打开并比较标题、目标、完成条件、结果、状态。
-
-全部保留才算这项通过。丢失时保留原数据库和现象，按文末修复，不重新创建同名记录冒充恢复成功。
-
-### 再核对两个文件依据
-
-四项检查完成后，在 A 发送只读问题：
+### 提示词 3：建设页面并接通检查
 
 ```text
-请只读指出 app.py 中两处依据：
-1. 页面点击“保存事项”后，在哪里把内容写入数据库；
-2. 重启后，在哪里打开同一个数据库并查回原事项。
-给出函数名和具体代码位置，解释它们的关系，先不修改程序。
+读取 docs/reference/工作台具体设计.md 和已完成的后端，继续建设页面。
+所有检查从个人项目根目录运行，使用设计中记录的 Python 绝对路径。
+本轮新增：
+workbench_web/index.html
+workbench_web/app.js
+workbench_web/styles.css
+tests/__init__.py
+tests/test_workbench_server.py
+并更新 README.md。
+
+首页显示“个人 AI 研发工作台”。
+“事项与决策”区域说明任务管理待建设；
+“本次运行”区域显示实际服务状态和计划数据库位置。
+加载页面与点击“重新检查”都请求健康接口。
+按计划核对响应身份；失败时显示原因并清除旧路径确认，
+恢复服务后能够再检查。内容、交互和样式分别放在对应文件。
+
+建立标准库测试，实际核对首页、JS/CSS、健康信息，
+默认与显式运行目录、未知路径404、写入请求被拒绝，
+以及运行后没有创建数据目录或数据库。
+核对九个一级目录与根入口；预留目录存在不算功能通过。
+使用临时目录和空闲端口，不导入后续尚未建设的模块。
+
+运行 python -X utf8 -m unittest tests.test_workbench_server -v，
+报告用例数量、退出码和未验证项。
+后端需要调整时说明原因，保持原文件分工与本次范围。
+浏览器中的断线提示和恢复由我下一步亲自核对。
 ```
 
-在 VS Code 打开 `app.py`，找到它指出的位置。是否看到了写入、读取，以及同一个数据库路径？将依据填入实验记录第 5 节。看不懂时请 Codex 解释这几行，再核对；仍无法确认就如实记“未确认”。
+建设完成后，展开前面的目录树逐项核对：文件位置一致，本讲检查通过，后续功能仍标为待建设。路径偏离时先修正源码、引用和配置。
 
-**本步完成：**四项检查有实际编号和前后对照，两项文件依据经过本人查看。失败项修好后需重新检查。
+**可以继续的条件：**文件已保存，实际测试数量大于零，测试通过。测试文件缺失、零用例或环境错误都应先处理，不能算项目完成。
 
-## 第 6 步：保存记录和一个可找回的 Git 版本
+## 第 4 步：亲自打开工作台，检查正常与失败
 
-在 B 停止服务，确认命令提示符出现。补完 `experiment-v0-records/V0.0-独立实验.md`：填实际动作、输出、失败、修复和未解决项，保存后关闭再打开一次，确认记录还在。
+这一步由你操作。图中的三次状态变化，都要在自己的工作台中实际看到。
 
-在项目根目录的 B 执行两端通用命令：
+![图 4 服务运行 停止服务后检查失败 重启后重新检查恢复](../assets/l00-imagegen/04-check-and-recover.png)
+
+先在个人项目根目录查看改动并复验：
 
 ```text
 git status --short
-git check-ignore .venv/ .runtime/ __pycache__/ experiment-v0-records/
+git add -N -- .gitignore README.md pyproject.toml main.py AGENTS.md workbench workbench_web tests agent eval docs scripts deploy harness_web
+git diff --check
+git diff --stat
+python -X utf8 -m unittest tests.test_workbench_server -v
 ```
 
-第一条应能看到源码和需求文件的 `??`，不应列出环境、数据库或个人记录。第二条应输出四个被忽略的目录；不齐时先修 `.gitignore`，再查一次。
+`git add -N` 让新文件出现在差异中，尚未提交。对照设计核对文件位置，让 Codex 指出两处连接依据，再由你打开源码确认。
 
-确认后，**逐行运行**，只把这四个文件保存为版本：
+随后启动服务：
 
 ```text
-git add WORKBENCH_SPEC.md app.py README.md .gitignore
-git diff --cached --name-only
+python -X utf8 -m workbench.cli serve-workbench --runtime-dir .runtime/workbench
 ```
 
-暂存清单应只有上面的四个文件，核对后再运行：
+保持启动终端运行，在浏览器打开 [http://127.0.0.1:8001/](http://127.0.0.1:8001/)。需要另一个终端时，激活同一参考环境，再进入个人目录。
+
+| 检查 | 你要做什么 | 正常结果 |
+|---|---|---|
+| 首页 | 打开根路径 `/`，核对启动终端中的源码位置 | 显示工作台标题和“本次运行”，任务管理待建设 |
+| 运行信息 | 打开 `/api/health` | `surface` 为 `workbench`，运行目录属于本项目，`database_exists` 为 `false` |
+| 失败提示 | 打开 `/not-found`；保留首页，在服务终端按 `Ctrl+C`，回首页点击“重新检查” | 未知页面返回 404；首页显示连接失败，旧路径不再显示为已确认 |
+| 重启恢复 | 用原命令重启，回首页重新检查 | 服务状态恢复，仍未创建数据库 |
+
+默认计划数据库是 `.runtime/workbench/workbench.db`。本次只报告位置，不实际存储数据。
+
+上面四项检查通过后，再停止服务并复验根入口：未改参数时运行 `python -X utf8 main.py`；已改参数时使用 `python -X utf8 main.py serve-workbench` 并附上原参数。复查首页与健康信息，确认根入口也启动同一个工作台。
+
+核对完成后，在服务终端按 `Ctrl+C`，看到命令提示符再进入第 5 步。
+
+<details>
+<summary>检查失败时：怎样让 Codex 帮你修复</summary>
+
+端口被占用时先保留错误。可以增加 `--port 8002`，对应打开 [http://127.0.0.1:8002/](http://127.0.0.1:8002/)；看到其他项目的页面不算自己的服务启动成功。
+
+其他错误用下面的提示词，把空项补为实际事实：
 
 ```text
-git commit -m "完成个人工作台 V0.0 基础版"
+工作台在检查〈名称〉时失败，
+请按 docs/reference/工作台具体设计.md 定位并修复。
+当前个人项目：
+实际命令或浏览器动作：
+完整输出与退出码：
+预期结果：
+已经核对的文件：
+
+先解释原因，再在本次范围内做最小修复，保留原失败记录。
+修复后重跑同一检查，列出实际差异和仍未验证的部分。
+不要改弱检查标准，也不要替我填写现场复验结果。
+```
+
+后端修复后，在服务终端按 `Ctrl+C`，再运行原启动命令，回浏览器重做失败项。Python 服务不会自动加载修改后的源码。
+
+重开终端时，先激活参考仓库的 `.venv`，再进入个人目录。核对 `sys.executable` 与 `workbench.__file__`，双系统恢复方式见[执行与排错说明](../../reference/实操手册执行与排错.md)。
+
+</details>
+
+**可以继续的条件：**四项现场检查都完成，失败与修复能解释；参考测试结果和 Codex 的完成声明不能代替你的现场结果。
+
+## 第 5 步：留下自己的记录，保存这个版本
+
+<a id="run-records"></a>
+
+在个人项目保存 `lesson-00-submission/L00-壳验收.md`。文件名沿用课程约定，内容填写自己的事实：
+
+| 记录项 | 写什么 |
+|---|---|
+| 位置与版本 | 参考目录、个人目录、解释器、`docs/reference/工作台具体设计.md` 版本 |
+| 架构核对 | 九个目录的对应结果、两处实际源码依据，以及你怎样理解它们的连接 |
+| 检查结果 | 测试命令、数量、退出码和四项现场结果 |
+| 失败与修订 | 原错误、修改文件、同一标准下的复验结果；未运行项如实标明 |
+
+更新 README 的“下一步”：当前可用什么、已检查什么、还需建设什么。然后保存源码版本：
+
+```text
+git add .gitignore README.md pyproject.toml main.py AGENTS.md workbench workbench_web tests agent eval docs scripts deploy harness_web
+git diff --cached --check
+git commit -m "chore: build personal workbench foundation"
 git log -1 --oneline
 git status --short
 ```
 
-成功时能看到一条提交及其编号，最后的状态输出为空。把提交编号填入个人记录。若 Git 提示无法确定作者身份，在 **本项目 B** 用自己的信息运行下面两条，替换引号中的文字，再重试原提交命令；不加 `--global`：
+提交前核对清单，运行目录、数据库和个人学习记录保留在本地或课程指定入口。Git 身份未配置时按错误提示处理后重试。把实际提交编号补记到检查记录。
 
-```text
-git config user.name "你的学习署名"
-git config user.email "你的Git提交邮箱"
-```
+**完成判断：**源码版本能找回，你能解释启动、路径、服务与页面的分工，运行与失败检查有自己的记录。
 
-本地保存版本不需要创建 GitHub 仓库或推送。保留完整项目用于下次运行；交作业按开营通知提供源码、Spec 和个人记录，不附环境、数据库或凭据。
+## 第 6 步：沿这个项目继续建设
 
-**本步完成：**自己的 V0.0 项目、真实检查记录和 Git 提交都能找回。保留它作为独立实验成果；想继续增强它时另开实验需求并复验。进入正式 L01 时，回到课程参考仓库，使用 [L01 手册](../L01/实践操作手册.md#prepare)规定的隔离区，不将本项目复制进去。
+打开 [L01 的已有壳接续入口](../L01/实践操作手册.md#continue-shell)，选择“A. 已有个人工作台壳”，继续使用**同一个个人目录**。承接工具只接入课程采集工具，不替换你的实现。
 
-## 失败时：把事实发给 A，修完重启再查
+<details>
+<summary>承接工具的输出怎样核对</summary>
 
-先复制原错误或记录页面现象，再切到 A 发送下面这段。把空白处换成自己的信息：
+这一步的 `prepare_shell.py --continue-l01` 只核对已有文件、补两份课程采集工具和位置记录，不替换你的实现。`layout="aligned_directory_skeleton"` 表示必需文件的位置齐备，不检查可选的 `harness_web/`，也不证明程序或本人验收通过。九个目录的对应关系仍按自己的设计核对。
 
-```text
-我在 V0.0 独立实验第__步，检查__失败，请先只读定位原因并说明最小修改范围，暂不修改文件。
-项目绝对路径：
-实际命令或页面动作：
-完整错误或实际现象：
-预期结果：
-原事项编号（尚未创建则写尚无）：
-请保留已有源码、原数据库和失败记录；不要用删除数据库或新建同名事项绕过。
-修复后告诉我改了哪些文件，启动仍由我在终端 B 完成。
-```
+若旧版项目报告 `missing_layout_files`，保留原实现，先按本页设计与提示词补齐缺失位置，再核对。工具不会替你写架构或验收结论。
 
-需要改程序时，先在 B 停止服务，等命令提示符出现，再向 A 发送：“服务已停止，请修复刚才定位的问题，保留原数据；修复后列出改动，不启动服务。”B 本来没有运行服务时，无需按停止键。
+记录中的 `source_root` 指参考材料，`path` 指个人源码；具体命令按 L01 手册执行。
 
-修好后依次做：**第 3 步语法检查 → 第 4 步原命令启动 → 重做失败项 → 重做四项检查**。修改了文件不等于正在运行的旧进程已经更新。
+</details>
 
-登录或安装失败先返回[工具准备与排错](./L00｜课前准备：装好工具，跑通第一次环境自检.md#遇到问题再看)；源码生成和功能失败用上面的事实记录求助，不把环境错误算成程序功能缺失。
+后续始终使用这个工作台。L04 开始，由它组织 Codex 开发独立的 FlowERP 客户项目。
 
-## 重开窗口后：回原项目继续
+![图 5 工作台逐讲增加能力 从L04开始组织独立FlowERP交付](../assets/l00-imagegen/05-course-growth.png)
 
-在 VS Code“文件 → 打开文件夹”选择记录中的项目，再打开 A、B 两个终端。每个新终端都要核对目录；默认路径的恢复命令如下，改过位置或名称的同学替换为自己记录的路径。
+沿上面的工作台主线读，再看下面的客户项目：**先建研发工具，再用它交付产品；交付中的问题推动工具继续改进。**
 
-**Windows（PowerShell）：**
+<details>
+<summary>各讲具体补在哪些文件</summary>
 
-```powershell
-Set-Location -LiteralPath "$env:USERPROFILE\work\my-ai-workbench"
-Get-Location
-.\.venv\Scripts\python.exe --version
-```
+| 阶段 | 增加的位置 | 解决什么问题 |
+|---|---|---|
+| L01 | `workbench/bootstrap.py`，接入原 CLI | 保存项目、任务和命令证据，记录自身建设 |
+| L02 | 完善原 `AGENTS.md` | 用本人制定的协作规则约束修改，并通过对照实验验证 |
+| L03 | `workbench/spec.py` | 将需求合同变为可检查的输入 |
+| L04 | `workbench/task_store.py`、`workbench/execution.py`、`workbench/workflow.py` 和 `eval/harness.py` | 接通受控任务、执行、复验与人审 |
+| 后续 | 在原 `agent/` 加入 `loop.py`、`graph.py`；在原 `scripts/`、`deploy/` 补检查与部署；扩展原页面 | 管理返工、审核和交付，让已实现能力在页面可用 |
 
-**macOS（zsh）：**
+</details>
 
-```zsh
-cd "$HOME/work/my-ai-workbench"
-pwd
-./.venv/bin/python --version
-```
+[课程提供的壳](./starter/)也可用于对照和排错。选择从 0 搭建时，自己的建设过程保留在设计、源码、检查记录和 Git 版本中。
 
-B 按进度恢复：停在第 1～3 步时，返回未完成的步骤，不提前启动服务；第 4 步已经启动成功的，才运行记录中的原启动命令。
-
-A 重新运行 `codex -C .` 后，告诉它：“我停在第__步，先读取当前已有的需求和记录文件，列出缺项，从未完成处继续。”尚未生成的文件如实说明，不让它补写运行结果。不重新创建目录或已有环境，不替换原数据库。
-
-需要结束 Codex 时，在 A 的对话输入区发送 `/quit`；停止工作台则在 B 按 `Ctrl+C`。这两者分别结束对话和本次服务进程。CLI 的目录参数和退出方式依据 [OpenAI 官方命令说明](https://learn.chatgpt.com/docs/developer-commands)，核对日期：2026-10-03。
+**再做一个小变化：**换端口和显式运行目录，重新启动。解释为什么换端口改变访问地址，而换运行目录改变计划数据库位置，并保存实际结果。
 
 返回 [L00 入口](./README.md)。

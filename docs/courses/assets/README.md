@@ -21,6 +21,7 @@
 
 ## 其他图示与历史截图
 
+- [L00 历史课程路线源图](l00-architecture/course-mainline.drawio)：保留旧版路线设计；当前起点与选做安排按 [L00 入口](../L00/README.md) 阅读。
 - [course-three-layer.drawio](course-three-layer.drawio)
 - [course-three-layer.svg](course-three-layer.svg)
 - [fde-evidence-chain.png](fde-evidence-chain.png)

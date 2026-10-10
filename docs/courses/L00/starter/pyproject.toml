@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "flowerp-fde-camp"
+version = "0.0.0"
+description = "L00 standard-library workbench shell"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.scripts]
+codexfde = "main:main"
+flowerp-workbench = "workbench.cli:main"
+
+[tool.setuptools]
+py-modules = ["main"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["workbench*", "eval*", "agent*", "harness_web*"]
+
+[tool.setuptools.package-data]
+"*" = ["*.html", "*.css", "*.js"]

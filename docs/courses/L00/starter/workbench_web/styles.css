@@ -1,0 +1,11 @@
+:root { color-scheme: light; font-family: system-ui, "Microsoft YaHei", sans-serif; color: #213047; background: #f3f6fb; }
+body { margin: 0; }
+main { max-width: 850px; margin: 3rem auto; padding: 0 1.25rem; }
+.lesson { color: #516982; }
+h1 { font-size: 2rem; }
+h2 { font-size: 1.3rem; margin-top: 0; }
+section { background: white; padding: 1.5rem; margin: 1.5rem 0; border: 1px solid #d9e2ed; border-radius: 12px; }
+p { line-height: 1.8; }
+code { overflow-wrap: anywhere; }
+button { font: inherit; padding: .55rem 1rem; color: white; background: #244f8e; border: 0; border-radius: 6px; cursor: pointer; }
+button:disabled { opacity: .6; cursor: wait; }

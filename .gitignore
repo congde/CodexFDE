@@ -20,6 +20,7 @@ _extract_appendix/
 /docs/courses/**/assets/reading-depth-*/mechanism.json
 /docs/courses/assets/advanced-concepts-*/manifest.json
 /docs/courses/**/assets/imagegen-*/*-prompt.txt
+/docs/courses/**/assets/imagegen-*/*.prompt.md
 /docs/courses/**/assets/*-summary-*.prompt.txt
 /docs/courses/**/slides/assets/**/imagegen-prompts.md
 
