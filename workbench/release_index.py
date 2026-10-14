@@ -69,12 +69,14 @@ def create_release_index(runtime_dir, task_id, *, cold_start=None, product=None,
     for label, recorded in (('pre_eval', pre), ('post_eval', result)):
         if label in references:
             try:
-                actual = json.loads((output / references[label]['path']).read_text(encoding='utf-8'))
+                # The append-only output directory does not exist yet. Resolve
+                # the lexical ".." components before opening the original.
+                actual = json.loads((output / references[label]['path']).resolve().read_text(encoding='utf-8'))
                 if actual.get('summary') != recorded.get('summary'):
                     gaps.append(label + '_summary_mismatch')
                 if label == 'post_eval' and actual.get('results') != result.get('results'):
                     gaps.append('post_eval_results_mismatch')
-            except (ValueError, AttributeError):
+            except (OSError, ValueError, AttributeError):
                 gaps.append(label + '_unreadable')
 
     payload = {'schema': 'workbench.release-index/v1', 'task_id':task['id'],

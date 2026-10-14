@@ -49,23 +49,25 @@ class EnvironmentCheckTests(unittest.TestCase):
     def test_l00_stdlib_self_checks_run_without_project_source(self):
         directory = env.ROOT / 'docs/courses/L00'
         preparation = next(directory.glob('L00*.md')).read_text(encoding='utf-8')
-        self.assertIn('不需要克隆课程程序', preparation)
-        self.assertIn('工作台代码应由本次建设产生', preparation)
-        self.assertIn('不能代替现场检查', preparation)
-        target = re.search(r'\[从 0 开始搭建个人 AI 研发工作台\]\(([^)]+)\)', preparation)
+        # The current L00 acquires a reference environment, then hands off to
+        # either a supplied empty shell or an independently constructed shell.
+        # A retired sentence about avoiding all cloning is not the contract.
+        self.assertIn('../L01/实践操作手册.md#provided-shell', preparation)
+        self.assertIn('../L01/实践操作手册.md#continue-shell', preparation)
+        target = re.search(r'\[[^\]]+\]\(([^)]*从0开始搭建个人AI研发工作台\.md)\)', preparation)
         self.assertIsNotNone(target, '准备手册必须交接到真实建设步骤')
         lesson = (directory / target.group(1)).read_text(encoding='utf-8')
         for language, interpreter in (
-            ('powershell', r'.\.venv\Scripts\python.exe'),
-            ('zsh', './.venv/bin/python'),
+            ('powershell', '& $coursePython'),
+            ('zsh', '"$coursePython"'),
         ):
             with self.subTest(platform=language):
                 blocks = re.findall(rf'```{language}\n(.*?)```', lesson, re.DOTALL)
                 checks = [line for block in blocks for line in block.splitlines()
                           if 'sqlite3.sqlite_version' in line]
                 self.assertEqual(1, len(checks), '每个平台须有一条独立环境自检')
-                command = re.fullmatch(re.escape(interpreter) + r' -X utf8 -c "([^"\n]+)"', checks[0])
-                self.assertIsNotNone(command, '自检须直接调用本项目虚拟环境')
+                command = re.fullmatch(re.escape(interpreter) + r' -X utf8 -c "([^"\n]+)"', checks[0].strip())
+                self.assertIsNotNone(command, '自检须调用已核对的课程虚拟环境')
                 source = command.group(1)
                 self.assertNotIn('workbench', source)
                 self.assertNotIn('flowerp', source)

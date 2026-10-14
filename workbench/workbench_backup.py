@@ -229,6 +229,8 @@ def _database_state(database, runtime, *, check_busy=True, known_directories=Non
                         elif isinstance(nested, list):
                             stack.extend((field + '[' + str(i) + ']', v) for i, v in enumerate(nested))
                         elif isinstance(nested, str) and len(nested) < 4096 and '\n' not in nested and '://' not in nested:
+                            if field.endswith('.health.path'):
+                                continue  # Health request routes are URLs, including POSIX-looking /health.
                             path = Path(nested)
                             if not path.is_absolute() and (not path.parts or path.parts[0] not in EVIDENCE_DIRS):
                                 continue

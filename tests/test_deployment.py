@@ -45,10 +45,10 @@ class DeploymentTests(unittest.TestCase):
         self.runtime = Path(self.temp.name) / 'runtime'
         subprocess.run(['git', 'init', '-q'], cwd=self.root, check=True)
         (self.root / 'value.txt').write_text('accepted')
-        (self.root / 'check.py').write_text("import json\nprint(json.dumps({'summary':{'decision':'pass','total':1,'passed':1,'blocking_failed':0},'results':[{'name':'local','level':'blocking','passed':True}]}))")
+        (self.root / 'fixture_eval.py').write_text("import json\nprint(json.dumps({'summary':{'decision':'pass','total':1,'passed':1,'blocking_failed':0},'results':[{'name':'local','level':'blocking','passed':True}]}))")
         self.tasks = TaskStore(self.runtime / 'workbench.db')
         self.projects = ProjectStore(self.tasks.path)
-        self.project = self.projects.create('local', self.root, [sys.executable, 'check.py'])
+        self.project = self.projects.create('local', self.root, [sys.executable, 'fixture_eval.py'])
         self.items = InitiativeStore(self.tasks.path)
         self.item = self.items.create({'title':'local release', 'raw_signal':'fixture', 'source':'fixture',
                                       'project_id':self.project['id'], 'success_metric':'observable'}, 'owner')

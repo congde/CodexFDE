@@ -13,8 +13,8 @@ class ProjectLabelTests(unittest.TestCase):
             for path in (first, second):
                 (path / '.git').mkdir(parents=True)
             store = ProjectStore(root / 'runtime' / 'registry.db')
-            old = store.create('课程参考', first, ['python', 'check.py'])
-            new = store.create('FlowERP', second, ['python', 'check.py'])
+            old = store.create('课程参考', first, ['python', 'fixture_eval.py'])
+            new = store.create('FlowERP', second, ['python', 'fixture_eval.py'])
             self.assertIsNone(store.default())
             store.set_default(new['id'])
             restored = ProjectStore(store.path)

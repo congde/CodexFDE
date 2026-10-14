@@ -1,0 +1,1 @@
+Personally constructed L01 onward controller snapshot for isolated L08 remote QA. Source comes from the maintenance follow-along project, with an explicit independent customer subprocess adapter. No student or named-human acceptance is claimed. Never merge the deliberately false-green A workflow into main.

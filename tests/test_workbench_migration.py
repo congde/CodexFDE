@@ -43,10 +43,10 @@ class WorkbenchMigrationTests(unittest.TestCase):
         self.project.mkdir()
         subprocess.run(['git', 'init', '--quiet', str(self.project)], check=True, capture_output=True)
         (self.project / 'value.py').write_bytes(b'value = 1\n')
-        (self.project / 'check.py').write_text('print("fixture only")\n', encoding='utf-8')
+        (self.project / 'fixture_eval.py').write_text('print("fixture only")\n', encoding='utf-8')
         self.projects = ProjectStore(self.runtime / 'workbench.db')
         self.project_id = self.projects.create('migration fixture', self.project,
-            [sys.executable, '-B', 'check.py'], project_id='PROJECT-MIGRATION')['id']
+            [sys.executable, '-B', 'fixture_eval.py'], project_id='PROJECT-MIGRATION')['id']
 
     def tearDown(self):
         for runtime in self.runtimes:
@@ -177,7 +177,7 @@ class WorkbenchMigrationTests(unittest.TestCase):
         self.assertEqual(database_bytes, (runtime / 'workbench.db').read_bytes())
 
     def test_missing_external_environment_blocks_fresh_work_without_replay(self):
-        _, runtime, project, _ = self.migrated(command=[str(self.root / 'missing/python.exe'), '-B', 'check.py'])
+        _, runtime, project, _ = self.migrated(command=[str(self.root / 'missing/python.exe'), '-B', 'fixture_eval.py'])
         result = validate_migration_environment(runtime)
         self.assertEqual('missing_dependencies', result['status'])
         self.assertTrue(any('可执行程序缺失' in e for e in result['projects'][0]['errors']))
@@ -194,7 +194,7 @@ class WorkbenchMigrationTests(unittest.TestCase):
         self.assertEqual('missing_dependencies', result['status'])
         self.assertTrue(any('Git登记' in error for error in result['projects'][0]['errors']))
         subprocess.run(['git', 'init', '--quiet', str(project)], check=True, capture_output=True)
-        self.projects.configure(self.project_id, [getattr(sys, '_base_executable', sys.executable), 'check.py'])
+        self.projects.configure(self.project_id, [getattr(sys, '_base_executable', sys.executable), 'fixture_eval.py'])
         archive = self.archive()
         runtime_c = self.root / 'runtime-c'; self.runtimes.append(runtime_c)
         result = restore_migration(archive, runtime_c, {})
@@ -249,7 +249,7 @@ class WorkbenchMigrationTests(unittest.TestCase):
         _, runtime, _, _ = self.migrated()
         plan_path = runtime / 'migration/environment-plan.json'
         plan = json.loads(plan_path.read_text(encoding='utf-8'))
-        plan['projects'][0]['eval_command'] = [sys.executable, 'different-check.py']
+        plan['projects'][0]['eval_command'] = [sys.executable, 'different-fixture_eval.py']
         plan_path.write_text(json.dumps(plan), encoding='utf-8')
         with self.assertRaisesRegex(ValueError, '计划已变化'):
             assert_migration_preflight(runtime, self.project_id)
@@ -411,9 +411,9 @@ class WorkbenchMigrationTests(unittest.TestCase):
             # The actual fixture Eval ignores the extra argument, but binding it
             # exercises read-time relocation of absolute registered arguments.
             fixture.projects.configure(fixture.project['id'],
-                [sys.executable, '-B', 'check.py', str(old_source / 'policy.txt')])
+                [sys.executable, '-B', 'contract_eval.py', str(old_source / 'policy.txt')])
             config = ProjectConfiguration(fixture.projects)
-            runtime_command = [sys.executable, '-B', str(old_source / 'check.py'), '{workspace}']
+            runtime_command = [sys.executable, '-B', str(old_source / 'contract_eval.py'), '{workspace}']
             config.save(fixture.project['id'], dict(expected_configuration_revision=0,
                 preview_config=dict(command=runtime_command, health={'path': '/health'}),
                 deployment_profiles=[dict(id='local', command=runtime_command,
@@ -442,7 +442,7 @@ class WorkbenchMigrationTests(unittest.TestCase):
                 self.runtimes.append(runtime)
                 shutil.copytree(old_source, project)
                 restored = restore_migration(archive, runtime, {str(old_source): str(project)})
-                self.assertEqual('ready', restored['execution_environment']['status'])
+                self.assertEqual('ready', restored['execution_environment']['status'], restored['execution_environment'])
                 copies.append((runtime, project))
             # A previous host's directories really cannot satisfy any is_file or
             # is_dir check here; retained copies have different absolute paths.
@@ -496,7 +496,7 @@ class WorkbenchMigrationTests(unittest.TestCase):
                     projected_config['deployment_profiles'][0]['rollback_command']]
                 for command in commands:
                     self.assertEqual(sys.executable, command[0])
-                    self.assertEqual(str(project / 'check.py'), command[2])
+                    self.assertEqual(str(project / 'contract_eval.py'), command[2])
                     self.assertTrue(Path(command[2]).is_file())
                     self.assertEqual('{workspace}', command[3])
                 self.assertEqual(archived_database, (runtime / 'workbench.db').read_bytes())
@@ -507,7 +507,7 @@ class WorkbenchMigrationTests(unittest.TestCase):
                                                       (fixture.project['id'],)).fetchone()[0])
                     self.assertEqual(str(old_source), registered[0])
                     self.assertEqual(str(old_source / 'policy.txt'), json.loads(registered[1])[3])
-                    self.assertEqual(str(old_source / 'check.py'), raw_config['preview_config']['command'][2])
+                    self.assertEqual(str(old_source / 'contract_eval.py'), raw_config['preview_config']['command'][2])
 
 
 if __name__ == '__main__':

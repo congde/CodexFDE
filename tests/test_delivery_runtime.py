@@ -69,6 +69,21 @@ class LocalWorker(CodexExecutionRunner):
                 with self.ready_lock:LocalWorker.active -= 1
 
 
+def wait_for_worker_usage(case, expected=None, timeout=30):
+    """Wait for actual owned-process output after bounded snapshot preparation."""
+    deadline=time.monotonic()+timeout
+    while time.monotonic()<deadline:
+        with LocalWorker.ready_lock:
+            ready=set(LocalWorker.ready)
+        if ready and (expected is None or ready==expected):
+            return
+        worker=case.runtime.workers.get(case.item['id']) or case.workflow.workers.get(case.item['id'])
+        if worker is not None and not worker.is_alive():
+            case.fail('owned fixture ended before its process marker: '+repr(case.runtime._load(case.item['id'])))
+        time.sleep(.02)
+    case.fail('owned fixture did not produce its actual process marker before the startup deadline')
+
+
 class DeliveryRuntimeTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -80,14 +95,14 @@ class DeliveryRuntimeTests(unittest.TestCase):
         subprocess.run(['git', 'init', '-q'], cwd=self.repository, check=True)
         for name in ('a.txt', 'b.txt'):
             (self.repository / name).write_text('1')
-        (self.repository / 'check.py').write_text("import json;from pathlib import Path\n"
+        (self.repository / 'delivery_contract_eval.py').write_text("import json;from pathlib import Path\n"
             "ok=all(Path(n).read_text() in ('1','2') for n in ('a.txt','b.txt'))\n"
             "print(json.dumps({'summary':{'decision':'pass' if ok else 'block','total':1,'passed':int(ok),'blocking_failed':int(not ok)},'results':[{'name':'value','level':'blocking','passed':ok}]}))\n"
             "raise SystemExit(0 if ok else 1)\n")
         self.runtime_dir = self.root / 'runtime'
         self.tasks = TaskStore(self.runtime_dir / 'workbench.db')
         self.projects = ProjectStore(self.tasks.path)
-        self.project = self.projects.create('test', self.repository, [sys.executable, 'check.py'])
+        self.project = self.projects.create('test', self.repository, [sys.executable, 'delivery_contract_eval.py'])
         self.items = InitiativeStore(self.tasks.path)
         self.item = self.items.create({'title':'change two files', 'raw_signal':'change two files', 'source':'fixture',
                                       'project_id':self.project['id'], 'success_metric':'both values are 2'}, 'owner')
@@ -158,7 +173,7 @@ class DeliveryRuntimeTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, '不得并行'):
             self.prepare({'name':'b', 'prompt':'change a', 'read_set':['a.txt'], 'write_set':['b.txt']})
         with self.assertRaisesRegex(ValueError, '父事项'):
-            self.prepare({'name':'b', 'prompt':'change checks', 'write_set':['check.py']})
+            self.prepare({'name':'b', 'prompt':'change checks', 'write_set':['delivery_contract_eval.py']})
         self.assertFalse(self.runtime.workers)
 
     def test_shutdown_refuses_new_delivery_and_prepared_workers(self):
@@ -237,7 +252,7 @@ class DeliveryRuntimeTests(unittest.TestCase):
 
     def test_four_frozen_workers_really_overlap_in_independent_cli_candidates(self):
         for name in ('c.txt','d.txt'):(self.repository/name).write_text('1')
-        (self.repository/'check.py').write_text("import json;from pathlib import Path\n"
+        (self.repository/'delivery_contract_eval.py').write_text("import json;from pathlib import Path\n"
             "ok=all(Path(n).read_text() in ('1','2') for n in ('a.txt','b.txt','c.txt','d.txt'))\n"
             "print(json.dumps({'summary':{'decision':'pass' if ok else 'block','total':1,'passed':int(ok),'blocking_failed':int(not ok)},'results':[{'name':'four-values','level':'blocking','passed':ok}]}))\n"
             "raise SystemExit(0 if ok else 1)")
@@ -351,7 +366,7 @@ class DeliveryRuntimeTests(unittest.TestCase):
         self.assertIn('--ignore-user-config',readonly)
 
     def test_subtask_failure_retains_outputs_and_prevents_acceptance(self):
-        (self.repository / 'check.py').write_text("import json\nprint(json.dumps({'summary':{'decision':'block','total':1,'passed':0,'blocking_failed':1},'results':[{'name':'bad','level':'blocking','passed':False}]}))\nraise SystemExit(1)")
+        (self.repository / 'delivery_contract_eval.py').write_text("import json\nprint(json.dumps({'summary':{'decision':'block','total':1,'passed':0,'blocking_failed':1},'results':[{'name':'bad','level':'blocking','passed':False}]}))\nraise SystemExit(1)")
         self.plan['source_manifest'] = manifest(self.repository, self.runtime_dir)
         work = self.workflow._load(self.item['id']); work['plan'] = self.plan; self.workflow._save(work)
         self.start()
@@ -364,11 +379,9 @@ class DeliveryRuntimeTests(unittest.TestCase):
     def test_pause_ends_owned_process_and_explicit_resume_checks_hash(self):
         view = self.prepare()
         with LocalWorker.ready_lock:LocalWorker.ready.clear()
-        with patch.object(LocalWorker, 'delay', 10):
+        with patch.object(LocalWorker,'completion_gate',self.root/'pause-process-gate'):
             self.runtime.start_subtasks(self.item['id'], 'owner', view['revision'], 'pause-key', view['subtask_plan_id'])
-            deadline = time.time()+5
-            while LocalWorker.ready != {'a.txt','b.txt'} and time.time()<deadline:
-                time.sleep(.01)
+            wait_for_worker_usage(self,{'a.txt','b.txt'})
             self.assertEqual({'a.txt','b.txt'},LocalWorker.ready)
             current = self.view()
             self.runtime.control(self.item['id'], 'pause', 'owner', current['revision'],
@@ -662,6 +675,31 @@ class DeliveryRuntimeTests(unittest.TestCase):
         self.assertEqual('cancelled',self.wait()['state'])
         self.assertEqual('1',(self.repository/'a.txt').read_text())
 
+    def test_close_signal_finishes_worker_before_cancel_intent_is_persisted(self):
+        with patch.object(LocalWorker,'delay',10):
+            self.start()
+            deadline=time.monotonic()+5
+            while not any(c['status']=='running' for c in self.view()['subtasks']) and time.monotonic()<deadline:
+                time.sleep(.01)
+            event=self.runtime.events[self.item['id']]
+            original=event.set
+            worker=self.runtime.workers[self.item['id']]
+            closer=threading.current_thread()
+            def finish_on_signal():
+                original()
+                # close() signals before it takes state locks. Make that actual
+                # owned worker finish in this window instead of relying on timing.
+                if threading.current_thread() is closer:
+                    worker.join(3)
+                    self.assertFalse(worker.is_alive(),'fixture did not reach the pre-persistence shutdown window')
+            with patch.object(event,'set',side_effect=finish_on_signal):
+                receipt=self.runtime.close()
+        self.assertEqual(0,receipt['workers_still_stopping'])
+        result=self.wait()
+        self.assertEqual('cancelled',result['state'],result)
+        self.assertEqual('cancel',result['requested_control'])
+        self.assertEqual('1',(self.repository/'a.txt').read_text())
+
     @contextmanager
     def parent_eval_fixture(self, phase):
         """Keep a real parent Eval alive; retain and reclaim only this fixture's jobs."""
@@ -679,7 +717,7 @@ class DeliveryRuntimeTests(unittest.TestCase):
             "print(json.dumps({'summary':{'decision':'pass' if ok else 'block','total':1,'passed':int(ok),'blocking_failed':int(not ok)},'results':[{'name':'value','level':'blocking','passed':ok}]}))\n"
             "raise SystemExit(0 if ok else 1)\n"
         )
-        (self.repository / 'check.py').write_text(check)
+        (self.repository / 'delivery_contract_eval.py').write_text(check)
         self.plan = prepare_daily(self.repository, self.runtime_dir, 'owner', 'update-a and update-b',
                                   'values are 2', ['a.txt', 'b.txt'], project=self.project)
         self.plan.update(plan_id='plan-fixture', expires_at=time.time()+900)
@@ -879,7 +917,7 @@ class DeliveryRuntimeTests(unittest.TestCase):
             self.runtime._save(settled)
         with patch('workbench.delivery_runtime.manifest', wraps=manifest) as actual_manifest:
             refreshed = self.view()
-        actual_manifest.assert_called_once_with(self.repository, self.runtime_dir)
+        actual_manifest.assert_called_once_with(self.repository, self.runtime_dir, record_process=False)
         self.assertTrue(refreshed['candidate_sha256'])
         self.assertEqual('verified', refreshed['candidate_verification'])
         self.assertEqual(action == 'pause', refreshed['can_resume'])
@@ -942,9 +980,9 @@ class DeliveryRuntimeTests(unittest.TestCase):
     def test_shared_session_pause_controls_the_actual_cli_run(self):
         api=self.shared_api()
         with LocalWorker.ready_lock:LocalWorker.ready.clear()
-        with patch.object(LocalWorker,'delay',10):
-            self.start(); deadline=time.time()+5
-            while LocalWorker.ready != {'a.txt','b.txt'} and time.time()<deadline:time.sleep(.01)
+        with patch.object(LocalWorker,'completion_gate',self.root/'session-pause-process-gate'):
+            self.start()
+            wait_for_worker_usage(self,{'a.txt','b.txt'})
             self.assertEqual({'a.txt','b.txt'},LocalWorker.ready)
             current=self.view()
             with self.runtime.lock:

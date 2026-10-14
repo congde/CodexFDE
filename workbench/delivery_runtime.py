@@ -438,7 +438,9 @@ class DeliveryRuntime:
                                   runner_factory=lambda w, r: self._runner(item_id, w, r))
             with self.lock:
                 data = self._load(item_id)
-                requested = data.get('requested_control')
+                requested = 'cancel' if self.closed else data.get('requested_control')
+                if requested:
+                    data['requested_control'] = requested
                 data['budget']['elapsed_seconds'] = int(time.time() - data['started_at'])
                 data['state'] = 'paused' if requested == 'pause' else 'cancelled' if requested == 'cancel' else output['task']['status']
                 data['error'] = output['task'].get('error') or ''
@@ -449,7 +451,9 @@ class DeliveryRuntime:
         except Exception as exc:
             with self.lock:
                 data = self._load(item_id)
-                requested = data.get('requested_control')
+                requested = 'cancel' if self.closed else data.get('requested_control')
+                if requested:
+                    data['requested_control'] = requested
                 data['budget']['elapsed_seconds'] = int(time.time() - data['started_at'])
                 data.update(state='paused' if requested == 'pause' else 'cancelled' if requested == 'cancel' else 'failed', error=str(exc))
                 self._save(data)
@@ -933,7 +937,9 @@ class DeliveryRuntime:
         except Exception as exc:
             with self.workflow.lock, self.lock:
                 data = self._load(item_id)
-                requested = data.get('requested_control')
+                requested = 'cancel' if self.closed else data.get('requested_control')
+                if requested:
+                    data['requested_control'] = requested
                 data['budget']['elapsed_seconds'] = int(time.time() - data['started_at']) if data.get('started_at') else 0
                 data.update(state='paused' if requested == 'pause' else 'cancelled' if requested == 'cancel' else 'failed', error=str(exc))
                 self._save(data)

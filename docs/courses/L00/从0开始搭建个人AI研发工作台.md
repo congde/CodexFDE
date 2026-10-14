@@ -148,7 +148,7 @@ serve(host="127.0.0.1", port=8001, runtime_dir=".runtime", *,
     if ($LASTEXITCODE -ne 0) { throw 'Git 初始化失败，请先排查。' }
     Write-Host "参考材料：$courseRoot"
     Write-Host "个人源码：$((Get-Location).Path)"
-    & $coursePython -X utf8 -c "import sys; print('Python:', sys.executable)"
+    & $coursePython -X utf8 -c "import sys, sqlite3; print(sys.version); print(sys.executable); print('SQLite:', sqlite3.sqlite_version)"
 }
 ```
 
@@ -180,7 +180,7 @@ prepare_workbench_project() {
   cd "$personalRoot" || return 1
   git init || return 1
   printf '参考材料：%s\n个人源码：%s\n' "$courseRoot" "$PWD"
-  "$coursePython" -X utf8 -c "import sys; print('Python:', sys.executable)"
+  "$coursePython" -X utf8 -c "import sys, sqlite3; print(sys.version); print(sys.executable); print('SQLite:', sqlite3.sqlite_version)"
 }
 prepare_workbench_project
 ```

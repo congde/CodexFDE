@@ -389,7 +389,7 @@ class RecipeV2DeliveryTests(unittest.TestCase):
     def test_manual_recheck_green_eval_with_invalid_output_enters_rework_and_revokes(self):
         # Eval-owned outputs are ignored by Git but still required by the recipe.
         (self.f.source / '.gitignore').write_text('.cache/\n', encoding='utf-8')
-        check = self.f.source / 'check.py'
+        check = self.f.source / 'contract_eval.py'
         check.write_text("from pathlib import Path\nPath('.cache').mkdir(exist_ok=True)\n"
             "Path('.cache/output.txt').write_text('bad' if Path('.cache/break-output').exists() else 'good')\n"
             + check.read_text(encoding='utf-8'), encoding='utf-8')

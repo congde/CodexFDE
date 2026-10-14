@@ -104,8 +104,8 @@ class ProjectRegistrationTests(unittest.TestCase):
         self.assertNotEqual(0, subprocess.run(['git', 'rev-parse', '--verify', 'HEAD'], cwd=folder, capture_output=True).returncode)
         with self.assertRaisesRegex(ValueError, '已添加'):
             self.service.add(self.body(folder))
-        configured = self.service.configure(result['id'], {'eval_command': [sys.executable, 'check.py']})
-        self.assertEqual([sys.executable, 'check.py'], configured['eval_command'])
+        configured = self.service.configure(result['id'], {'eval_command': [sys.executable, 'fixture_eval.py']})
+        self.assertEqual([sys.executable, 'fixture_eval.py'], configured['eval_command'])
         self.assertEqual(result['root_path'], configured['root_path'])
 
     def test_git_subdirectory_is_not_silently_registered_or_reinitialized(self):
@@ -173,9 +173,9 @@ class ProjectRegistrationTests(unittest.TestCase):
         self.assertEqual(201, status)
         self.assertEqual(project['id'], app.default_project)
         self.assertEqual([], project['eval_command'])
-        status, configured = request('/api/v1/projects/'+project['id']+'/settings', {'eval_command': [sys.executable, 'check.py']})
+        status, configured = request('/api/v1/projects/'+project['id']+'/settings', {'eval_command': [sys.executable, 'fixture_eval.py']})
         self.assertEqual(200, status)
-        self.assertEqual([sys.executable, 'check.py'], configured['eval_command'])
+        self.assertEqual([sys.executable, 'fixture_eval.py'], configured['eval_command'])
         self.assertEqual(project['id'], WorkbenchApp(app.runtime).default_project)
 
 

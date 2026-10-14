@@ -101,6 +101,17 @@ def probe(url, health, timeout=2):
                     raise ValueError('健康检查JSON超过64KiB体积上限')
             _remaining(deadline)
             actual = json.loads(body)
+            # Decoder recursion limits differ between supported Python versions.
+            # Reject excessive nesting explicitly instead of trusting a 200 alone.
+            stack = [(actual, 0)]
+            while stack:
+                node, depth = stack.pop()
+                if depth > 64:
+                    raise ValueError('健康检查JSON超过64层嵌套上限')
+                if isinstance(node, dict):
+                    stack.extend((value, depth + 1) for value in node.values())
+                elif isinstance(node, list):
+                    stack.extend((value, depth + 1) for value in node)
         if not isinstance(actual, dict):
             raise ValueError('健康检查须返回JSON对象')
         return {'passed': all(actual.get(k) == v for k, v in health['expected'].items()), 'actual': actual}

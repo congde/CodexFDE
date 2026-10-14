@@ -144,7 +144,7 @@ class RuntimeReadIntegrationTests(unittest.TestCase):
         candidate = self.root / 'candidate'
         (candidate / '.git').mkdir(parents=True)
         project = {'id': 'PROJECT-fixture', 'root_path': str(self.root / 'source'),
-                   'eval_command': [sys.executable, '-B', 'check.py']}
+                   'eval_command': [sys.executable, '-B', 'fixture_eval.py']}
         package = quality_hook.prepare(self.root / 'runtime', candidate, project,
                                        'TASK-fixture', 'INIT-fixture', 'fixture-preparer')
         binding = Path(package['path']) / 'binding.json'
@@ -161,7 +161,7 @@ class RuntimeReadIntegrationTests(unittest.TestCase):
                 candidate = self.root / filename / 'candidate'
                 (candidate / '.git').mkdir(parents=True)
                 project = {'id': 'PROJECT-fixture', 'root_path': str(self.root / 'source'),
-                           'eval_command': [sys.executable, '-B', 'check.py']}
+                           'eval_command': [sys.executable, '-B', 'fixture_eval.py']}
                 original = Path.open
                 altered = []
 

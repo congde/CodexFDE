@@ -34,11 +34,11 @@ class ProjectInitiativeTests(unittest.TestCase):
             subprocess.run(['git', 'init', '-q', str(root)], check=True)
             (root / 'value.txt').write_text('1')
             (root / 'AGENTS.md').write_text('Only change value.txt.')
-            (root / 'check.py').write_text("import json\nfrom pathlib import Path\n"
+            (root / 'fixture_eval.py').write_text("import json\nfrom pathlib import Path\n"
                 "assert Path('value.txt').read_text() in ('1', '2')\n"
                 "print(json.dumps({'summary': {'decision':'pass','total':1,'passed':1,'blocking_failed':0},"
                 "'results':[{'name':'value','level':'blocking','passed':True}]}))\n")
-            self.registered.append(self.projects.create(name, root, [sys.executable, 'check.py']))
+            self.registered.append(self.projects.create(name, root, [sys.executable, 'fixture_eval.py']))
         self.item = self.items.create({'title': 'change value', 'raw_signal': 'change value', 'source': 'test',
             'project_id': self.registered[1]['id'], 'success_metric': 'value is 2'}, 'owner')
         self.sources = []
@@ -191,7 +191,7 @@ class ProjectInitiativeTests(unittest.TestCase):
         self.call('execute')
         state = self.wait()
         workspace = Path(state['workspace'])
-        (workspace / 'check.py').write_text("import json,sys\nprint(json.dumps({'summary':"
+        (workspace / 'fixture_eval.py').write_text("import json,sys\nprint(json.dumps({'summary':"
             "{'total':1,'passed':0,'blocking_failed':1,'observing_failed':0,'decision':'block'},"
             "'results':[{'name':'value','level':'blocking','passed':False}]}))\nsys.exit(1)")
         self.call('run_eval')
@@ -205,7 +205,7 @@ class ProjectInitiativeTests(unittest.TestCase):
         self.ready()
         self.call('execute')
         state = self.wait()
-        (Path(state['workspace']) / 'check.py').write_text("print('not a JSON report')")
+        (Path(state['workspace']) / 'fixture_eval.py').write_text("print('not a JSON report')")
         self.call('run_eval')
         state = self.wait()
         self.assertEqual('failed', state['stage'])

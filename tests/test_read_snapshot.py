@@ -89,7 +89,7 @@ class ReadSnapshotTests(unittest.TestCase):
                     research_manifest=manifest(self.root, self.runtime),
                     plan={'source_manifest': manifest(self.root, self.runtime)})
         package = prepare(self.runtime, self.root, {'id': 'FIXTURE', 'root_path': str(self.root.parent / 'registered'),
-                          'eval_command': [sys.executable, 'check.py']},
+                          'eval_command': [sys.executable, 'fixture_eval.py']},
                           task['id'], item['id'], 'owner')
         for index in range(3):
             (Path(package['path']) / ('run-' + str(index) + '.json')).write_text(json.dumps({'report': report}), encoding='utf-8')

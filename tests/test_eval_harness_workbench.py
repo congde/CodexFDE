@@ -42,9 +42,9 @@ class EvalHarnessTests(unittest.TestCase):
             root.mkdir()
             runtime = Path(temp) / 'runtime'
             subprocess.run(['git', 'init', '-q', str(root)], check=True)
-            script = root / 'check.py'
+            script = root / 'fixture_eval.py'
             script.write_text('import json\nprint(' + repr(json.dumps(report(warning=True))) + ')', encoding='utf-8')
-            runner = CandidateProjectEval(root, runtime, 'TASK-test', [sys.executable, '-B', 'check.py'], 'test')
+            runner = CandidateProjectEval(root, runtime, 'TASK-test', [sys.executable, '-B', 'fixture_eval.py'], 'test')
             first, second = runner(), runner()
             self.assertNotEqual(first['runner']['report_path'], second['runner']['report_path'])
             self.assertEqual('current', report_view(first, root, runtime)['freshness'])

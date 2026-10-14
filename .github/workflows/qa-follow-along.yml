@@ -1,0 +1,48 @@
+name: QA continuous personal L08
+on:
+  push:
+    branches: [codex/qa-follow-along-20261013-73404b55]
+    paths:
+      - .github/workflows/qa-follow-along.yml
+      - verification-fixtures/continuous-personal-workbench/**
+permissions:
+  contents: read
+jobs:
+  actual-qa-evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      FLOWERP_PROJECT_ROOT: ${{ github.workspace }}/qa-product
+      CI_REPORT_DIR: ${{ github.workspace }}/_qa_evidence/${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Read frozen product selection
+        id: product
+        run: |
+          python -c 'import json; print("sha="+json.load(open("verification-fixtures/continuous-personal-workbench/selection.json"))["product_sha"])' >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        with:
+          repository: congde/flowERP
+          ref: ${{ steps.product.outputs.sha }}
+          path: qa-product
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Prepare independent customer environment
+        run: |
+          python -m venv "$FLOWERP_PROJECT_ROOT/.venv"
+          "$FLOWERP_PROJECT_ROOT/.venv/bin/python" -m pip install -e "$FLOWERP_PROJECT_ROOT"
+      - name: Run the frozen unit checks and personal Harness
+        run: |
+          python -B -X utf8 verification-fixtures/continuous-personal-workbench/ci/run.py
+      - name: Archive this run even when red
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: personal-l08-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.CI_REPORT_DIR }}/*
+          if-no-files-found: error
+          include-hidden-files: true

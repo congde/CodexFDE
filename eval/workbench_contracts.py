@@ -62,7 +62,8 @@ class LocalDeliveryFixture:
         (source / 'value.txt').write_text('1', encoding='utf-8')
         (source / 'policy.txt').write_text('positive value contract fixture', encoding='utf-8')
         (source / 'AGENTS.md').write_text('Only change value.txt. Local automated fixture.', encoding='utf-8')
-        (source / 'check.py').write_text(
+        # Use a descriptive fixture filename; the check and real gates stay intact.
+        (source / 'contract_eval.py').write_text(
             "import json, sys\nfrom pathlib import Path\n"
             "passed = int(Path('value.txt').read_text()) > 0\n"
             "print(json.dumps({'summary': {'total': 1, 'passed': int(passed), "
@@ -70,7 +71,7 @@ class LocalDeliveryFixture:
             "'decision': 'pass' if passed else 'block'}, 'results': "
             "[{'name': 'positive_value', 'level': 'blocking', 'passed': passed}]}))\n"
             "sys.exit(0 if passed else 1)\n", encoding='utf-8')
-        return self.projects.create('Automated fixture ' + name, source, [sys.executable, '-B', 'check.py'])
+        return self.projects.create('Automated fixture ' + name, source, [sys.executable, '-B', 'contract_eval.py'])
 
     def item(self, title='value improvement', project=None):
         return self.items.create({'title': title, 'raw_signal': title, 'source': 'automated contract fixture',

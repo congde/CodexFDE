@@ -198,16 +198,9 @@ class DailyRuntimeCompatibilityTests(unittest.TestCase):
         plan = self.prepare(service)
         with runtime_fixtures.LocalWorker.ready_lock:
             runtime_fixtures.LocalWorker.ready.clear()
-        with patch.object(runtime_fixtures.LocalWorker, 'delay', 3):
+        with patch.object(runtime_fixtures.LocalWorker,'completion_gate',self.root/'alias-pause-process-gate'):
             service.authorize(plan['plan_id'], plan['confirmation'], 'owner')
-            deadline = time.monotonic() + 6
-            while time.monotonic() < deadline:
-                with runtime_fixtures.LocalWorker.ready_lock:
-                    if 'a.txt' in runtime_fixtures.LocalWorker.ready:
-                        break
-                time.sleep(.025)
-            else:
-                self.fail('isolated CLI fixture never reached its real process marker')
+            runtime_fixtures.wait_for_worker_usage(self)
             current = self.runtime.view(self.item['id'])
             self.runtime.control(self.item['id'], 'pause', 'owner', current['revision'],
                                  run_id=current['run_id'], session_id=current['session_id'],

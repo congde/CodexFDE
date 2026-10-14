@@ -79,9 +79,9 @@ class CandidatePreviewTests(unittest.TestCase):
         subprocess.run(['git', 'init', '-q'], cwd=source, check=True, capture_output=True)
         script = ("import json\nprint(json.dumps({'summary':{'decision':'pass','total':1,'passed':1,'blocking_failed':0},"
                   "'results':[{'name':'maintenance-fixture','level':'blocking','passed':True}]}))\n")
-        (source / 'check.py').write_text(script, encoding='utf-8')
+        (source / 'fixture_eval.py').write_text(script, encoding='utf-8')
         projects = ProjectStore(store.path)
-        command = [sys.executable, '-B', 'check.py']
+        command = [sys.executable, '-B', 'fixture_eval.py']
         projects.create('isolated preview migration fixture', source, command)
         spec = original / 'specs' / 'preview.md'
         spec.parent.mkdir()
@@ -91,7 +91,7 @@ class CandidatePreviewTests(unittest.TestCase):
         workspace = original / 'daily-delivery' / task['id'] / 'workspace'
         (workspace / 'web').mkdir(parents=True)
         (workspace / 'web/index.html').write_bytes(b'checked preview fixture')
-        (workspace / 'check.py').write_text(script, encoding='utf-8')
+        (workspace / 'fixture_eval.py').write_text(script, encoding='utf-8')
         subprocess.run(['git', 'init', '-q'], cwd=workspace, check=True, capture_output=True)
         for status in ('spec_ready', 'executing', 'evaluating'):
             store.transition(task['id'], status)
