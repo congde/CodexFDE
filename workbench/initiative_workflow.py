@@ -16,6 +16,7 @@ from contextlib import nullcontext
 from .daily_delivery import manifest, prepare_daily, submit_daily
 from .initiative_research import InitiativeResearch
 from .learning import LearningStore, canonical
+from .initiative_decisions import InitiativeDecisions, confirmation_digest, policy as delivery_policy
 
 
 BUSY = {'researching', 'queued', 'executing', 'checking', 'cancelling', 'integrating'}
@@ -44,6 +45,7 @@ class InitiativeWorkflow:
         self.lock = threading.RLock()
         self.workers = {}
         self.learning = LearningStore(tasks.path)
+        self.decisions = InitiativeDecisions(self)
         from .learning_generation import LearningGenerationService
         self.learning_generation = LearningGenerationService(self.runtime, self.tasks, self.repository_for)
         with self.tasks.connect() as db:
@@ -166,6 +168,9 @@ class InitiativeWorkflow:
             row = db.execute('SELECT payload FROM initiative_workflows WHERE id=?', (item_id,)).fetchone()
         if row:
             data = json.loads(row['payload'])
+            if item.get('linked_task_id'):
+                linked = self.tasks.get(item['linked_task_id'])
+                data['linked_requirement_id'] = linked.get('requirement_id', '')
             if data.get('v0') and data.get('active_task_id'):
                 task = self.tasks.get(data['active_task_id'])
                 if task['status'] in {'review', 'completed', 'rework', 'failed', 'dead_letter'}:
@@ -188,6 +193,7 @@ class InitiativeWorkflow:
 
     def _documents(self, data, item, proposal):
         versions = data.setdefault('documents', [])
+        previous = copy.deepcopy(versions[-1]) if versions else None
         version = len(versions) + 1
         versions.append({'version': version, 'at': time.time(), 'status': 'draft',
             'prd': {'business_problem': item['raw_signal'], 'goal': proposal['goal'],
@@ -198,6 +204,17 @@ class InitiativeWorkflow:
                                'write_scope': proposal['write_scope'], 'steps': proposal['steps'],
                                'test_plan': proposal.get('test_plan', []), 'eval_command': (self.project(item['id']) or {}).get('eval_command', [])}})
         data['document_version'] = version
+        if data.pop('pending_rework_reason', None) == 'technical' and previous and previous.get('prd_confirmation'):
+            data['prd_reuse_base'] = previous
+        original = data.get('prd_reuse_base')
+        if original:
+            prd = original['prd']
+            if all(prd.get(key, []) == proposal.get(key, []) for key in ('goal', 'acceptance', 'non_goals', 'users', 'scope')):
+                versions[-1]['prd'] = copy.deepcopy(prd)
+                versions[-1]['prd_confirmation'] = {**original['prd_confirmation'], 'version': version,
+                                                     'carried_from_version': original['version']}
+                self._event(data, 'system', '技术方案返工沿用未变化的已确认需求；保留原需求判断与确认来源',
+                            previous_document_version=original['version'])
 
     def record_delivery(self, item_id, actor, revision, kind, fields):
         actor = self.actor(actor)
@@ -337,6 +354,8 @@ class InitiativeWorkflow:
         data['learning'] = self.learning.view(item_id)
         data['learning_sources'] = self.learning.source_options(item_id)
         data['prd_confirmed'] = bool(data.get('documents') and data['documents'][-1].get('prd_confirmation'))
+        data['delivery_policy'] = delivery_policy(self.initiatives.get(item_id), data, self.repository_for(item_id))
+        data['authorization_expired'] = bool(data.get('plan') and time.time() > data['plan'].get('expires_at', 0))
         # The saved warning describes a past observation, not the current tree.
         # Keep that observation in messages and expose a fresh, inspectable check.
         data['source_check'] = None
@@ -344,7 +363,8 @@ class InitiativeWorkflow:
             source = self.workspace_path(data['workspace']) if data['workspace'] else self.repository_for(item_id)
             try:
                 current = snapshot.files(source)
-                data['source_check'] = research_source_check(source, data['research_manifest'], current, data['proposal'])
+                baseline = data['plan']['source_manifest'] if data['stage'] == 'confirmed' and data.get('plan') else data['research_manifest']
+                data['source_check'] = research_source_check(source, baseline, current, data['proposal'])
                 changes = data['source_check']['files']
                 data['warning'] = (f'本事项所属项目有 {len(changes)} 项文件变化。'
                                    '已有回答和发现已保留；请重新核对后确认方案。' if changes else '')
@@ -400,6 +420,18 @@ class InitiativeWorkflow:
             self._event(data, 'user', '保存有界修复 Loop：最多 {max_rounds} 轮，时间 {time_budget_seconds} 秒，Token {token_budget}'.format(**config), actor=actor)
             self._save(data)
         return self.get(item_id)
+
+    def configure_delivery(self, item_id, actor, revision, mode, note):
+        return self.decisions.configure(item_id, actor, revision, mode, note)
+
+    def confirm_execute(self, item_id, actor, revision, reviewer, metric, confirmed=False):
+        return self.decisions.confirm_execute(item_id, actor, revision, reviewer, metric, confirmed)
+
+    def renew_authorization(self, item_id, actor, revision, note, confirmed=False):
+        return self.decisions.renew(item_id, actor, revision, note, confirmed)
+
+    def rework(self, item_id, actor, revision, reason, note):
+        return self.decisions.rework(item_id, actor, revision, reason, note)
 
     def prepare_hook(self, item_id, actor, revision):
         from .quality_hook import prepare
@@ -756,7 +788,8 @@ class InitiativeWorkflow:
             if research_source_check(source, data['research_manifest'], plan['source_manifest'], proposal)['files']:
                 raise ValueError('确认期间源码已变化，请重新调研')
             plan['spec_text'] += '\n\n产品与技术方案版本：\n\n' + json.dumps(data['documents'][-1], ensure_ascii=False)
-            plan.update(plan_id=secrets.token_hex(18), expires_at=time.time() + 900)
+            plan.update(plan_id=secrets.token_hex(18), expires_at=time.time() + 900,
+                        budget_policy=copy.deepcopy(data.get('repair_loop_config') or {}))
             if hasattr(self, 'delivery_runtime'):
                 self.delivery_runtime.freeze_profile(item_id, plan)
             binding = self.learning.bind(item_id, plan['plan_id'], data.get('learning_decision'), source, actor)
@@ -786,6 +819,8 @@ class InitiativeWorkflow:
             if not data.get('origin_manifest'):
                 data['origin_manifest'] = plan['source_manifest']
             data.update(stage='confirmed', plan=plan, reviewer=reviewer, initiative_version=item['version'] + 1)
+            data.pop('prd_reuse_base', None)
+            plan['confirmation_sha256'] = confirmation_digest(data)
             self._event(data, 'user', '确认本期目标、验收条件与不做范围；验收人：' + reviewer, actor=actor)
             self._save(data)
         return self.get(item_id)
@@ -813,9 +848,11 @@ class InitiativeWorkflow:
             if self.projects and not data['plan'].get('project'):
                 raise ValueError('历史方案尚未绑定项目，请重新调研并确认')
             if time.time() > data['plan']['expires_at']:
-                raise ValueError('执行方案已过期，请重新调研确认')
+                raise ValueError('执行授权已过期；请核对未变化的合同并续期，发生变化时再重新确认')
             if self.initiatives.get(item_id)['version'] != data['initiative_version']:
                 raise ValueError('已确认的事项发生变化，请重新核对')
+            if data['plan'].get('confirmation_sha256'):
+                self.decisions.validate_frozen(item_id, data)
             if data['plan'].get('learning_binding_id'):
                 source = self.workspace_path(data['workspace']) if data['workspace'] else self.repository_for(item_id)
                 try:

@@ -6,6 +6,7 @@ import unittest
 import xml.etree.ElementTree as ET
 import zipfile
 from pathlib import Path
+from urllib.parse import unquote
 
 from tests.test_course_outline_alignment import schedule_titles
 from tests.course_assets import (has_lesson_marker, local_slide_decks,
@@ -68,11 +69,26 @@ class CourseBlueprintTests(unittest.TestCase):
         self.assertRegex(body, r"逐页渲染|逐页检查")
 
     def test_editable_course_diagrams_and_previews_exist(self) -> None:
-        for stem in ("course-three-layer", "workbench-capability-growth", "fde-feedback-loop"):
-            source = COURSES / "assets" / f"{stem}.drawio"
-            self.assertTrue(source.is_file())
-            self.assertTrue((COURSES / "assets" / f"{stem}.svg").is_file())
-            ET.parse(source)
+        # Follow the diagrams students actually encounter; obsolete diagrams
+        # listed only by a resource index should not become mandatory assets.
+        sources: set[Path] = set()
+        for number in range(1, 17):
+            for name in ("README.md", "辅导资料.md", "实践操作手册.md"):
+                document = COURSES / f"L{number:02d}" / name
+                for href in re.findall(r"\]\(([^)]+)\)", document.read_text(encoding="utf-8")):
+                    if href.startswith(("https://", "http://")):
+                        continue
+                    source = (document.parent / unquote(href.split("#", 1)[0])).resolve()
+                    if source.suffix == ".drawio":
+                        sources.add(source)
+        self.assertTrue(sources, "当前学生材料须保留已声明的可编辑图源")
+        for source in sorted(sources):
+            with self.subTest(source=source.relative_to(ROOT)):
+                self.assertTrue(source.is_file())
+                ET.parse(source)
+                self.assertTrue(any(preview.is_file() for preview in (
+                    source.with_suffix(".svg"), source.with_suffix(".png"),
+                    Path(str(source) + ".png"))), "可编辑图须有可阅读预览")
 
     @unittest.skipUnless(os.environ.get('CODEXFDE_VALIDATE_LOCAL_SLIDES') == '1',
                          'PPT 不随 Git 发布；显式启用本地课件检查')

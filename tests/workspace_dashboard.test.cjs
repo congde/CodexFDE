@@ -11,7 +11,8 @@ function setup() {
       classList:{toggle() {}}, setAttribute() {}, removeAttribute() {},
       showModal() {this.hidden=false;}, close() {this.hidden=true;},
       append(...children) {this.children.push(...children);},
-      appendChild(child) {this.children.push(child);}, replaceChildren(...children) {this.children=children;}};
+      appendChild(child) {this.children.push(child);}, replaceChildren(...children) {this.children=children;},
+      querySelectorAll(selector) {return this.children.filter(child=>child.tag===selector);}};
   }
   const document = {createElement:element, getElementById(id) {
     if(!nodes.has(id)) nodes.set(id,element('div'));return nodes.get(id);

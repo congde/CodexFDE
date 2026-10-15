@@ -662,6 +662,18 @@ def make_handler(app: WorkbenchApp):
                             raise ValueError('事项操作路径无效')
                         item_id, action = parts[-3], parts[-1]
                         service, revision = app.initiative_workflow, body.get('revision')
+                        if action in {'delivery-route', 'confirm-execute', 'rework', 'renew-authorization'}:
+                            def decide_delivery():
+                                if action == 'delivery-route':
+                                    return service.configure_delivery(item_id, actor, revision, body.get('mode'), body.get('note'))
+                                if action == 'confirm-execute':
+                                    return service.confirm_execute(item_id, actor, revision, body.get('reviewer'),
+                                        body.get('success_metric'), body.get('confirmed'))
+                                if action == 'rework':
+                                    return service.rework(item_id, actor, revision, body.get('reason'), body.get('note'))
+                                return service.renew_authorization(item_id, actor, revision, body.get('note'), body.get('confirmed'))
+                            status = 202 if action in {'confirm-execute', 'rework'} else 200
+                            return self._json(status, app.mutations.run(path, body.get('submission_key'), body, decide_delivery))
                         if action == 'learning':
                             fields = body.get('fields')
                             if isinstance(fields, dict) and fields.get('action') in {'generate', 'cancel_generation'}:

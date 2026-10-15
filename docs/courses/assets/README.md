@@ -1,66 +1,62 @@
-# 课程公共资源目录
+# 课程公共配图
 
-以下保留已发布的图示和历史截图，供逐项定位。文件存在不证明其所示运行属于当前版本；历史运行未在本次排查中重演，不作学生学习或产品验收证据。
+按当前讲的正文查看配图；每讲的操作与完成判断从[学习入口](../../README.md)进入。资源目录用于维护来源和文件，学习时无需逐张浏览。
 
-## 学习入口配图
+## 当前需要的解释图
 
-以下三张图由内置 ImageGen 于 2026-10-05 生成，用于 [docs 学习入口](../../README.md) 的关系解释和阅读导航，属于机制示意。
+| 用途 | 在哪里看 |
+|---|---|
+| 工作台与 FlowERP 怎样联系 | [课程总入口](../../README.md#工作台怎样逐讲增长) |
+| 项目起点怎样分工 | [L00 参考选做](../L00/从0开始搭建个人AI研发工作台.md) |
+| 授权、实际修改与检查 | [L04 正文](../L04/辅导资料.md) · [SVG](../L04/assets/control-boundaries.svg) · [源图](../L04/assets/control-boundaries.drawio) |
+| 当前交付与后续经验采用 | [L16 正文](../L16/辅导资料.md) · [SVG](../L16/assets/workbench-methods.svg) · [源图](../L16/assets/workbench-methods.drawio) |
 
-- [先建工作台，再交付产品](readme-guide-20261005/01-build-workbench-deliver-flowerp.png)：区分工作台建设、FlowERP 交付与反馈改进。
-- [一讲怎样走到完成](readme-guide-20261005/02-complete-a-lesson.png)：首次判断、操作、复验、人审与迁移，失败时返回操作。
-- [按问题选择资料](readme-guide-20261005/03-choose-docs.png)：课表与大纲、courses、reference、architecture 各自的查阅用途。
+新增图先明确它帮助读者判断什么；正文使用一个主图，相关细节按需查阅。对象、顺序与箭头须对应正文，图注说明读法，并区分教学示意、参考运行和本人记录。
 
-## 逐讲主线配图
+<details>
+<summary>维护用公共资源索引</summary>
 
-以下四张图由内置 ImageGen 于 2026-10-06 生成，用于说明相邻讲次解决的问题怎样递进。图中对象和箭头是教学示意，具体实现、执行位置与完成标准随本讲手册核对。
+下表仅列实际保留的文件。课件配图已在相应 Office 包中核对；历史截图只说明当时的对象与结果。
 
-- [L01～L04：建工作台，再完成第一次产品交付](lesson-mainline-20261006/01-first-delivery.png)：首次建设、协作规则、合同解析与受控执行，L04 才由工作台组织 FlowERP 交付。
-- [L05～L08：让同一套检查可信](lesson-mainline-20261006/02-trust-the-checks.png)：抓错、汇总、实际触发、远程复验分别解决一个新问题。
-- [L09～L12：控制失败后的动作](lesson-mainline-20261006/03-control-repair-and-review.png)：限定修复、判断停止、组织分工、等待具名决定。
-- [L13～L16：让别人能用并继续交付](lesson-mainline-20261006/04-use-feedback-and-transfer.png)：任务接口、真实页面、反馈改进与新环境迁移。
+| 文件 | 当前用途 |
+|---|---|
+| [advanced-concepts-20261003/01-delivery-cycle.png](advanced-concepts-20261003/01-delivery-cycle.png) | 正文或专题引用 |
+| [advanced-concepts-20261003/02-context-contract.png](advanced-concepts-20261003/02-context-contract.png) | 正文或专题引用 |
+| [advanced-concepts-20261003/04-independent-eval.png](advanced-concepts-20261003/04-independent-eval.png) | 正文或专题引用 |
+| [advanced-concepts-20261003/05-bounded-loops.png](advanced-concepts-20261003/05-bounded-loops.png) | 正文或专题引用 |
+| [advanced-concepts-20261003/06-agent-contracts.png](advanced-concepts-20261003/06-agent-contracts.png) | 正文或专题引用 |
+| [advanced-concepts-20261003/07-durable-state.png](advanced-concepts-20261003/07-durable-state.png) | 正文或专题引用 |
+| [fde-evidence-chain.png](fde-evidence-chain.png) | 正文或专题引用 |
+| [l00-architecture/personal-workbench-v0.drawio](l00-architecture/personal-workbench-v0.drawio) | 正文或专题引用 |
+| [l00-architecture/personal-workbench-v0.png](l00-architecture/personal-workbench-v0.png) | 正文或专题引用 |
+| [l00-imagegen/01-workspaces.png](l00-imagegen/01-workspaces.png) | 正文或专题引用 |
+| [l00-imagegen/02-codex-collaboration.png](l00-imagegen/02-codex-collaboration.png) | 正文或专题引用 |
+| [l00-imagegen/03-one-request.png](l00-imagegen/03-one-request.png) | 正文或专题引用 |
+| [l00-imagegen/04-check-and-recover.png](l00-imagegen/04-check-and-recover.png) | 正文或专题引用 |
+| [l00-imagegen/05-course-growth.png](l00-imagegen/05-course-growth.png) | 正文或专题引用 |
+| [l16-inventory-e2e/09-candidate-empty-balances.png](l16-inventory-e2e/09-candidate-empty-balances.png) | 正文或专题引用 |
+| [l16-inventory-e2e/14-no-match.png](l16-inventory-e2e/14-no-match.png) | 正文或专题引用 |
+| [l16-inventory-e2e/17-fault-injection-no-stale-balances.png](l16-inventory-e2e/17-fault-injection-no-stale-balances.png) | 正文或专题引用 |
+| [lesson-focus-20261005/l03-spec-judgements.png](lesson-focus-20261005/l03-spec-judgements.png) | 正文或专题引用 |
+| [lesson-focus-20261005/l08-ci-coverage.png](lesson-focus-20261005/l08-ci-coverage.png) | 正文或专题引用 |
+| [lesson-focus-20261005/l09-report-authority.png](lesson-focus-20261005/l09-report-authority.png) | 正文或专题引用 |
+| [lesson-focus-20261005/l13-observe-control.png](lesson-focus-20261005/l13-observe-control.png) | 正文或专题引用 |
+| [lesson-focus-20261005/l14-stale-actions.png](lesson-focus-20261005/l14-stale-actions.png) | 正文或专题引用 |
+| [lesson-mainline-20261006/02-trust-the-checks.png](lesson-mainline-20261006/02-trust-the-checks.png) | 正文或专题引用 |
+| [lesson-mainline-20261006/04-use-feedback-and-transfer.png](lesson-mainline-20261006/04-use-feedback-and-transfer.png) | 正文或专题引用 |
+| [readme-guide-20261005/01-build-workbench-deliver-flowerp.png](readme-guide-20261005/01-build-workbench-deliver-flowerp.png) | 正文或专题引用 |
+| [web-07-delivery-evidence.png](web-07-delivery-evidence.png) | 正文或专题引用 |
+| [web-09-delivery-evidence-fixed.png](web-09-delivery-evidence-fixed.png) | 正文或专题引用 |
+| [web-12-clean-bootstrap-current.png](web-12-clean-bootstrap-current.png) | 正文或专题引用 |
+| [web-13-dashboard-live-data.png](web-13-dashboard-live-data.png) | 正文或专题引用 |
+| [web-15-purchase-approval.png](web-15-purchase-approval.png) | 正文或专题引用 |
+| [web-19-audit-trace.png](web-19-audit-trace.png) | 正文或专题引用 |
+| [web-20-delivery-task-live.png](web-20-delivery-task-live.png) | 正文或专题引用 |
+| [web-22-delivery-generated-spec.png](web-22-delivery-generated-spec.png) | 正文或专题引用 |
+| [web-23-delivery-event-trace.png](web-23-delivery-event-trace.png) | 正文或专题引用 |
+| [web-24-delivery-blocking-eval.png](web-24-delivery-blocking-eval.png) | 正文或专题引用 |
+| [web-25-delivery-human-gate.png](web-25-delivery-human-gate.png) | 正文或专题引用 |
+| [web-26-delivery-real-code-executor.png](web-26-delivery-real-code-executor.png) | 正文或专题引用 |
+| [web-27-delivery-evolution-record.png](web-27-delivery-evolution-record.png) | 正文或专题引用 |
 
-## 其他图示与历史截图
-
-- [L00 历史课程路线源图](l00-architecture/course-mainline.drawio)：保留旧版路线设计；当前起点与选做安排按 [L00 入口](../L00/README.md) 阅读。
-- [course-three-layer.drawio](course-three-layer.drawio)
-- [course-three-layer.svg](course-three-layer.svg)
-- [fde-evidence-chain.png](fde-evidence-chain.png)
-- [fde-feedback-loop.drawio](fde-feedback-loop.drawio)
-- [fde-feedback-loop.svg](fde-feedback-loop.svg)
-- [l03-architecture/01-existing-prd-version.png](l03-architecture/01-existing-prd-version.png)
-- [l16-inventory-e2e/00-inventory-before.png](l16-inventory-e2e/00-inventory-before.png)
-- [l16-inventory-e2e/01-workbench-research.png](l16-inventory-e2e/01-workbench-research.png)
-- [l16-inventory-e2e/02-plan-v1-scope-conflict.png](l16-inventory-e2e/02-plan-v1-scope-conflict.png)
-- [l16-inventory-e2e/03-prd-v2-before-confirmation.png](l16-inventory-e2e/03-prd-v2-before-confirmation.png)
-- [l16-inventory-e2e/04-technical-scope.png](l16-inventory-e2e/04-technical-scope.png)
-- [l16-inventory-e2e/05-background-execution.png](l16-inventory-e2e/05-background-execution.png)
-- [l16-inventory-e2e/06-eval-passed-awaiting-review.png](l16-inventory-e2e/06-eval-passed-awaiting-review.png)
-- [l16-inventory-e2e/07-preview-connection-failure.png](l16-inventory-e2e/07-preview-connection-failure.png)
-- [l16-inventory-e2e/08-candidate-first-start.png](l16-inventory-e2e/08-candidate-first-start.png)
-- [l16-inventory-e2e/09-candidate-empty-balances.png](l16-inventory-e2e/09-candidate-empty-balances.png)
-- [l16-inventory-e2e/10-candidate-all-balances.png](l16-inventory-e2e/10-candidate-all-balances.png)
-- [l16-inventory-e2e/11-sku-case-and-spaces.png](l16-inventory-e2e/11-sku-case-and-spaces.png)
-- [l16-inventory-e2e/12-chinese-name.png](l16-inventory-e2e/12-chinese-name.png)
-- [l16-inventory-e2e/13-location-filter.png](l16-inventory-e2e/13-location-filter.png)
-- [l16-inventory-e2e/14-no-match.png](l16-inventory-e2e/14-no-match.png)
-- [l16-inventory-e2e/15-clear-restores-balances.png](l16-inventory-e2e/15-clear-restores-balances.png)
-- [l16-inventory-e2e/16-ledger-tab-unaffected.png](l16-inventory-e2e/16-ledger-tab-unaffected.png)
-- [l16-inventory-e2e/17-fault-injection-no-stale-balances.png](l16-inventory-e2e/17-fault-injection-no-stale-balances.png)
-- [l16-inventory-e2e/18-preview-entry-repaired.png](l16-inventory-e2e/18-preview-entry-repaired.png)
-- [l16-inventory-e2e/19-candidate-recovered.png](l16-inventory-e2e/19-candidate-recovered.png)
-- [opening-camp-codex-fde.png](opening-camp-codex-fde.png)
-- [web-07-delivery-evidence.png](web-07-delivery-evidence.png)
-- [web-09-delivery-evidence-fixed.png](web-09-delivery-evidence-fixed.png)
-- [web-12-clean-bootstrap-current.png](web-12-clean-bootstrap-current.png)
-- [web-13-dashboard-live-data.png](web-13-dashboard-live-data.png)
-- [web-15-purchase-approval.png](web-15-purchase-approval.png)
-- [web-19-audit-trace.png](web-19-audit-trace.png)
-- [web-20-delivery-task-live.png](web-20-delivery-task-live.png)
-- [web-22-delivery-generated-spec.png](web-22-delivery-generated-spec.png)
-- [web-23-delivery-event-trace.png](web-23-delivery-event-trace.png)
-- [web-24-delivery-blocking-eval.png](web-24-delivery-blocking-eval.png)
-- [web-25-delivery-human-gate.png](web-25-delivery-human-gate.png)
-- [web-26-delivery-real-code-executor.png](web-26-delivery-real-code-executor.png)
-- [web-27-delivery-evolution-record.png](web-27-delivery-evolution-record.png)
-- [workbench-capability-growth.drawio](workbench-capability-growth.drawio)
-- [workbench-capability-growth.svg](workbench-capability-growth.svg)
+</details>

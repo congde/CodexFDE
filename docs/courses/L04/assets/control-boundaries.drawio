@@ -1,0 +1,67 @@
+<?xml version='1.0' encoding='utf-8'?>
+<mxfile host="drawio" version="31.4.4">
+  <diagram name="L04-授权与实际边界" id="L04-授权与实际边界">
+    <mxGraphModel page="1" pageScale="1" pageWidth="900" pageHeight="735" background="#ffffff">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="title" value="先明确授权，再核对实际变化" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#eaf4ff;strokeColor=#4389c7;strokeWidth=2;fontFamily=Microsoft YaHei;fontSize=24;fontColor=#18344c;spacing=12;strokeColor=none;fillColor=none;fontSize=32;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="20" y="15" width="860" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="authorize" value="1 你确认本轮要求&lt;br&gt;目标、允许文件、命令与超时" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#fff2dc;strokeColor=#c08b37;strokeWidth=2;fontFamily=Microsoft YaHei;fontSize=24;fontColor=#18344c;spacing=12;" vertex="1" parent="1">
+          <mxGeometry x="30" y="90" width="840" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="candidate" value="2 创建本轮副本&lt;br&gt;工作区权限由执行环境控制" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#eaf4ff;strokeColor=#4389c7;strokeWidth=2;fontFamily=Microsoft YaHei;fontSize=24;fontColor=#18344c;spacing=12;" vertex="1" parent="1">
+          <mxGeometry x="30" y="245" width="370" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="implement" value="3 Codex 实现&lt;br&gt;按说明修改允许的文件" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#eaf4ff;strokeColor=#4389c7;strokeWidth=2;fontFamily=Microsoft YaHei;fontSize=24;fontColor=#18344c;spacing=12;" vertex="1" parent="1">
+          <mxGeometry x="500" y="245" width="370" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="diff" value="4 核对修改（Diff）&lt;br&gt;实际变更对照允许文件" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#e6f5ef;strokeColor=#318775;strokeWidth=2;fontFamily=Microsoft YaHei;fontSize=24;fontColor=#18344c;spacing=12;" vertex="1" parent="1">
+          <mxGeometry x="30" y="425" width="370" height="105" as="geometry" />
+        </mxCell>
+        <mxCell id="eval" value="5 运行程序检查（Eval）&lt;br&gt;保留各项结果与退出码" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#e6f5ef;strokeColor=#318775;strokeWidth=2;fontFamily=Microsoft YaHei;fontSize=24;fontColor=#18344c;spacing=12;" vertex="1" parent="1">
+          <mxGeometry x="500" y="425" width="370" height="105" as="geometry" />
+        </mxCell>
+        <mxCell id="stop" value="越界、工具失败或超时&lt;br&gt;保留现场，停止推进" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#fff0ed;strokeColor=#c46652;strokeWidth=2;fontFamily=Microsoft YaHei;fontSize=24;fontColor=#18344c;spacing=12;" vertex="1" parent="1">
+          <mxGeometry x="30" y="605" width="370" height="85" as="geometry" />
+        </mxCell>
+        <mxCell id="review" value="6 由指定的人验收&lt;br&gt;按结果记录接受或退回" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#fff2dc;strokeColor=#c08b37;strokeWidth=2;fontFamily=Microsoft YaHei;fontSize=24;fontColor=#18344c;spacing=12;" vertex="1" parent="1">
+          <mxGeometry x="500" y="605" width="370" height="85" as="geometry" />
+        </mxCell>
+        <mxCell id="a-c" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeWidth=3;strokeColor=#318775;fontFamily=Microsoft YaHei;fontSize=22;fontColor=#318775;labelBackgroundColor=#ffffff;exitX=0.22;exitY=1;entryX=0.5;entryY=0;exitDx=0;exitDy=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="authorize" target="candidate">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c-i" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeWidth=3;strokeColor=#318775;fontFamily=Microsoft YaHei;fontSize=22;fontColor=#318775;labelBackgroundColor=#ffffff;exitX=1;exitY=0.5;entryX=0;entryY=0.5;exitDx=0;exitDy=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="candidate" target="implement">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="i-d" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeWidth=3;strokeColor=#318775;fontFamily=Microsoft YaHei;fontSize=22;fontColor=#318775;labelBackgroundColor=#ffffff;exitX=0.5;exitY=1;entryX=0.5;entryY=0;exitDx=0;exitDy=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="implement" target="diff">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="685" y="390" />
+              <mxPoint x="215" y="390" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="d-e" value="未越界" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeWidth=3;strokeColor=#318775;fontFamily=Microsoft YaHei;fontSize=22;fontColor=#318775;labelBackgroundColor=#ffffff;exitX=1;exitY=0.5;entryX=0;entryY=0.5;exitDx=0;exitDy=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="diff" target="eval">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="d-s" value="越界" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeWidth=3;strokeColor=#c46652;fontFamily=Microsoft YaHei;fontSize=22;fontColor=#c46652;labelBackgroundColor=#ffffff;exitX=0.5;exitY=1;entryX=0.5;entryY=0;exitDx=0;exitDy=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="diff" target="stop">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-r" value="通过" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeWidth=3;strokeColor=#318775;fontFamily=Microsoft YaHei;fontSize=22;fontColor=#318775;labelBackgroundColor=#ffffff;exitX=0.5;exitY=1;entryX=0.5;entryY=0;exitDx=0;exitDy=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="eval" target="review">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-s" value="未通过" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeWidth=3;strokeColor=#c46652;fontFamily=Microsoft YaHei;fontSize=22;fontColor=#c46652;labelBackgroundColor=#ffffff;exitX=0.25;exitY=1;entryX=1;entryY=0.45;exitDx=0;exitDy=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="eval" target="stop">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="593" y="560" />
+              <mxPoint x="455" y="560" />
+              <mxPoint x="455" y="643" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

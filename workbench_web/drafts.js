@@ -209,6 +209,9 @@ function trackWorkflowDrafts(data) {
     fields => { if (!iw('message').disabled) iw('message').value = fields.message || '';
       for (const e of iw('answers').querySelectorAll('textarea')) if (!e.disabled) e.value = fields.answers?.[e.dataset.question] || ''; }, iw('pane-action'));
   track('review', initiativeReviewBase(data), ['iw-note'], 'iw-result');
+  track('delivery-route', [data.document_version || 0,data.delivery_policy?.mode || 'standard'], ['iw-route-mode','iw-route-note'], 'iw-route-panel');
+  track('rework-decision', [data.active_task_id,data.document_version || 0], ['iw-rework-reason','iw-rework-note'], 'iw-rework-panel');
+  track('authorization-renewal', data.plan?.plan_id || '', ['iw-renew-note'], 'iw-renew-panel');
   track('v0', data.initiative_version, ['v0-spec','v0-workspace','v0-files'], 'v0-entry');
   const candidateIds = ['task','feedback','supersedes','title','content','applies','excludes','boundary','conflict','parameters','paths','contains','precheck','implement','eval','review','outputs','stop','rollback','guidance','generation-id','evidence-refs','schema','check-preconditions','check-precheck','check-implement','check-eval','required-implement','required-eval'].map(k => 'iw-learning-' + k);
   WorkbenchDrafts.track('learning-candidate', {...context, base: data.active_task_id},

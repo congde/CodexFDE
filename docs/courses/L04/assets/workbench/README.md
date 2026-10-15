@@ -11,7 +11,5 @@
 | [01-home.png](01-home.png) | 打开根地址首页 | `573150be8dbb634c3d053943e74c02c3d5f76ba0cae686a5731714d7c17efd98` |
 | [02-initiative-form.png](02-initiative-form.png) | 事项与决策 → ＋ 记录新事项 | `74f4136b71f785062ac1b17801b1cd68001156c82fa1d4e07f3bd5c644f675df` |
 | [04-task-detail.png](04-task-detail.png) | 交付记录 → 实际 A 任务卡片，等待详情加载 | `477bdb88c5dccd6f924e5da1068d61639f1815bc5b35d39f12cf440fe5f8188f` |
-| [05-evidence.png](05-evidence.png) | A 详情 → 核验证据 | `3b8caf8d2cd276503625529560e9da3158a1ae5d539c3a95bb89225f9ef51760` |
-| [06-eval-results.png](06-eval-results.png) | 核验证据 → 查看逐项检查结果 | `a269792549c91be279e5369e37a2e0a72e837c9580b31f22ffc4b220b1b13da7` |
 
 [对应的命令复验原始记录](../execution/README.md) · [实践手册](../../实践操作手册.md)

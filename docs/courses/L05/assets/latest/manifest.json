@@ -1,9 +1,0 @@
-{
-  "example-checks.json": "8854af22681b3dc3ebb69b252e29e65d558d7fe851629a466cccd7e27316671c",
-  "executor-record.json": "738c68ed81b9fa23953f9cba6bbcba8c0603271f9aeb4fce44430d0f15dc50ea",
-  "green-evidence.png": "e7732ebb0d307b3dd054ba68bf801a0cde5e4801a7e8f739894daecb351ce21b",
-  "red-evidence.png": "c9986d0c7c0eef60076ace5531e142d57b2e22bd23b2f7b353f0f3b513c53d43",
-  "web-task-record.json": "f2b78542b58815c90a200d1bea51c77dfd41fbf663d7f82671449fa93197e8bb",
-  "workbench-eval.png": "9798134e19af9d96ca7997e93ef0a6548e9b42ab7347bed03b8b1d23a08562ae",
-  "workbench-task.png": "9798134e19af9d96ca7997e93ef0a6548e9b42ab7347bed03b8b1d23a08562ae"
-}

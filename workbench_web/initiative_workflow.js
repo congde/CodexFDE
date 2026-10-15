@@ -43,6 +43,50 @@ function iwList(id, values) {
   iw(id).replaceChildren();
   (values || []).forEach(text=>{const item=document.createElement('li');item.textContent=text;iw(id).appendChild(item);});
 }
+function renderDeliveryDecisions(data) {
+  const route=data.delivery_policy || {mode:'standard',quick_eligible:false,reasons:[]};
+  const editable=['idle','clarifying','ready'].includes(data.stage) && !data.v0;
+  const labels={standard:'常规交付',quick:'局部小修改',strict:'关键业务交付',course:'课程训练'};
+  iw('route-panel').hidden=!!data.v0;
+  iw('route-status').textContent=(labels[route.mode] || '常规交付')+' · '+(route.reasons || []).join('；');
+  const binding=JSON.stringify([data.id,route.decision?.at || 0]);
+  if(iw('route-mode').dataset.binding!==binding){iw('route-mode').value=route.mode;iw('route-mode').dataset.binding=binding;}
+  iw('route-mode').disabled=initiativeWorkPending || !editable || route.course_bound;
+  iw('route-note').disabled=initiativeWorkPending || !editable;
+  iw('route-save').disabled=initiativeWorkPending || !editable;
+  const quickOption=[...iw('route-mode').querySelectorAll('option')].find(o=>o.value==='quick');
+  if(quickOption)quickOption.disabled=!route.quick_eligible;
+  const quick=data.stage==='ready' && route.mode==='quick' && route.quick_eligible;
+  iw('quick-execute').hidden=!quick;
+  iw('quick-execute').disabled=initiativeWorkPending || !data.enabled || !!(data.source_check && data.source_check.status!=='current');
+  if(quick){
+    iw('confirm-prd').hidden=true;iw('confirm').hidden=true;
+    iw('next-title').textContent='核对这项局部修改并授权';
+    iw('next-description').textContent='核对目标、文件范围、验收条件和验收负责人后，一次确认并授权；检查结束仍需人审。';
+  }
+  iw('renew-panel').hidden=data.stage!=='confirmed' || !data.authorization_expired || !!data.v0;
+  iw('renew').disabled=initiativeWorkPending || !!(data.source_check && data.source_check.status!=='current');
+  if(data.authorization_expired && data.stage==='confirmed')iw('execute').disabled=true;
+  if(data.authorization_expired && data.stage==='confirmed'){
+    iw('next-title').textContent='执行授权已过期，先核对续期';
+    iw('next-description').textContent='合同与源码未变化时可以续期，保留原确认；续期后再授权执行。';
+  }
+  const repairing=!data.v0 && ['review','rework','failed','interrupted','cancelled'].includes(data.stage);
+  iw('rework-panel').hidden=!repairing;
+  iw('open-rework').hidden=!repairing;
+  iw('open-rework').disabled=initiativeWorkPending || !data.enabled || !repairing;
+  iw('rework-submit').disabled=initiativeWorkPending || !data.enabled || !repairing;
+  iw('rework-reason').disabled=initiativeWorkPending || !repairing;
+  iw('rework-note').disabled=initiativeWorkPending || !repairing;
+  renderReworkHelp();
+}
+function renderReworkHelp() {
+  const help={implementation:'保留原目标、需求确认、写集和已消耗预算，建立新一轮修复方案。核对后再授权执行。',
+    technical:'重新调研技术方案；业务目标与验收条件未变化时沿用原需求确认，技术方案仍需重新确认。',
+    requirement:'重新澄清需求并生成新版本；原始判断、失败与确认记录继续保留。',
+    environment:'保留代码、失败记录和已消耗预算。可复验的候选只重跑原检查；中断任务核对后准备新轮授权。预算耗尽或用量不可核验时先重新讨论。'};
+  iw('rework-help').textContent=help[iw('rework-reason').value] || help.implementation;
+}
 function iwDiscussionText(extra='') {
   const answers=[...iw('answers').querySelectorAll('textarea')].filter(el=>el.value.trim())
     .map(el=>'问题：'+el.dataset.question+'\n回答：'+el.value.trim());
@@ -115,7 +159,9 @@ function renderInitiativeWork(data) {
   iw('delivery').hidden=!complete;
   iw('outcome-form').hidden=!data.current_release;
   iw('observation-status').textContent=data.observation_status || '尚未登记实际发布';
-  iw('documents').textContent=JSON.stringify({documents:data.documents || [],confirmations:data.document_confirmations || [],delivery_records:data.delivery_records || [],completed_cycles:data.completed_cycles || []},null,2);
+  iw('documents').textContent=JSON.stringify({documents:data.documents || [],confirmations:data.document_confirmations || [],
+    route_decisions:data.route_decisions || [],rework_decisions:data.rework_decisions || [],authorization_renewals:data.authorization_renewals || [],
+    delivery_records:data.delivery_records || [],completed_cycles:data.completed_cycles || []},null,2);
   ['release','outcome','reopen'].forEach(key=>iw(key).disabled=initiativeWorkPending);
   const doc=(data.documents || []).slice(-1)[0];
   iw('prd').textContent=doc ? '版本 '+doc.version+'\n业务问题：'+doc.prd.business_problem+
@@ -190,6 +236,7 @@ function renderInitiativeWork(data) {
   renderDeliveryWorkspace(data);
   if(typeof renderPlatformWorkflow==='function')renderPlatformWorkflow(data);
   if(data.v0){['accept','integrate','preview','execute','discuss'].forEach(id=>iw(id).hidden=true);}
+  renderDeliveryDecisions(data);
   if(typeof trackWorkflowDrafts==='function')trackWorkflowDrafts(data);
   if(!initiativeWorkReadable)invalidateInitiativeWork('当前记录未完成重新核对，旧结论不可用于授权或验收。');
 }
@@ -209,7 +256,7 @@ function refreshInitiativeWork({force=false,afterMutation=false}={}) {
   return pending.then(data=>{if(data && id===initiativeWorkId && epoch===initiativeWorkEpoch && generation===initiativeReadGeneration && typeof refreshPlatformViews==='function')return refreshPlatformViews({force});});
 }
 function showInitiativeWork(item) {
-  if(typeof WorkbenchDrafts!=='undefined')WorkbenchDrafts.detach(['discussion','review','v0','learning-candidate','learning-decisions']);
+  if(typeof WorkbenchDrafts!=='undefined')WorkbenchDrafts.detach(['discussion','review','v0','learning-candidate','learning-decisions','delivery-route','rework-decision','authorization-renewal']);
   clearInterval(initiativeWorkTimer);initiativeWorkTimer=null;++initiativeWorkRead;
   ++initiativeWorkEpoch;
   initiativeWorkId=item && item.id;initiativeWork=null;
@@ -218,7 +265,7 @@ function showInitiativeWork(item) {
   document.getElementById('initiative-work').hidden=!item;
   activeIwPane=null;activeIwStage=null;
   document.getElementById('v0-confirmed').checked=false;
-  ['v0-spec','v0-workspace','v0-files','iw-message','iw-note','iw-next',
+  ['v0-spec','v0-workspace','v0-files','iw-message','iw-note','iw-next','iw-route-note','iw-rework-note','iw-renew-note',
     'iw-release-version','iw-release-environment','iw-release-evidence',
     'iw-outcome-period','iw-outcome-target','iw-outcome-actual','iw-outcome-observation','iw-outcome-evidence','iw-outcome-conclusion',
     ...['task','feedback','supersedes','title','content','applies','excludes','boundary','conflict','parameters','paths','contains','precheck','implement','eval','review','outputs','stop','rollback',
@@ -239,7 +286,7 @@ async function initiativeWorkAction(action, extra={}) {
   if(!initiativeWork || initiativeWorkPending || initiativeWorkActions.has(initiativeWorkId) || !initiativeWorkReadable)return;
   const itemId=initiativeWorkId,epoch=initiativeWorkEpoch,token={};
   const currentView=()=>itemId===initiativeWorkId && epoch===initiativeWorkEpoch;
-  const draftGroup=({discuss:'discussion',accept:'review',v0:'v0'})[action] ||
+  const draftGroup=({discuss:'discussion',accept:'review',v0:'v0','delivery-route':'delivery-route',rework:'rework-decision','renew-authorization':'authorization-renewal'})[action] ||
     (action==='learning' ? ({create:'learning-candidate',decide:'learning-decisions'})[extra.fields?.action] : null);
   const draftSnapshot=draftGroup && typeof WorkbenchDrafts!=='undefined' ? WorkbenchDrafts.capture?.(draftGroup) : null;
   if(action==='accept' && (!extra.note?.trim() || draftSnapshot &&
@@ -263,6 +310,7 @@ async function initiativeWorkAction(action, extra={}) {
         Object.assign(body,{run_id:runtime.run_id,session_id:runtime.session_id,control_revision:runtime.control_revision});
     }
     if(action==='learning' && ['generate','cancel_generation'].includes(extra.fields?.action) && typeof platformKey==='function')body.submission_key=platformKey(itemId+'/learning/'+extra.fields.action,body);
+    if(['delivery-route','confirm-execute','rework','renew-authorization'].includes(action) && typeof platformKey==='function')body.submission_key=platformKey(itemId+'/workflow/'+action,body);
     const path='/api/v1/initiatives/'+itemId+'/workflow/'+action;
     const data=await (body.submission_key && typeof platformPost==='function' ? platformPost(path,body) : api(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}));
     if(!currentView()){if(draftSnapshot)WorkbenchDrafts.clearSubmitted(draftSnapshot);return;}
@@ -271,7 +319,7 @@ async function initiativeWorkAction(action, extra={}) {
     if(draftSnapshot)WorkbenchDrafts.clearSubmitted(draftSnapshot,action==='discuss' ? clearDiscussion : undefined);
     else if(action==='discuss' && JSON.stringify(discussionInput())===submittedDiscussion)clearDiscussion();
     renderInitiativeWork(data);
-    if(action==='confirm') {
+    if(['confirm','confirm-execute'].includes(action)) {
       const confirmed=await api('/api/v1/initiatives/'+itemId);
       if(!currentView())return;
       currentInitiative=confirmed;
@@ -329,6 +377,12 @@ function initInitiativeWork() {
   iw('defer-people').onclick=()=>initiativeWorkAction('discuss',{text:iwDiscussionText('独立复验者和最终人工验收负责人暂待确认。请先完善产品与技术方案，在相应确认和人工接受决定前落实真实人员及职责，不把人员待定作为重复澄清问题。')});
   iw('confirm').onclick=()=>initiativeWorkAction('confirm',{reviewer:iw('reviewer').value.trim()});
   iw('confirm-prd').onclick=()=>initiativeWorkAction('confirm-prd',{success_metric:iw('prd-metric').value.trim()});
+  iw('route-save').onclick=()=>initiativeWorkAction('delivery-route',{mode:iw('route-mode').value,note:iw('route-note').value.trim()});
+  iw('quick-execute').onclick=()=>initiativeWorkAction('confirm-execute',{reviewer:iw('reviewer').value.trim(),success_metric:iw('prd-metric').value.trim(),confirmed:true});
+  iw('renew').onclick=()=>initiativeWorkAction('renew-authorization',{note:iw('renew-note').value.trim(),confirmed:true});
+  iw('rework-reason').onchange=renderReworkHelp;
+  iw('open-rework').onclick=()=>selectIwPane('action');
+  iw('rework-submit').onclick=()=>initiativeWorkAction('rework',{reason:iw('rework-reason').value,note:iw('rework-note').value.trim()});
   iw('cancel').onclick=()=>initiativeWorkAction('cancel');
   iw('release').onclick=()=>initiativeWorkAction('release',{fields:{version:iw('release-version').value.trim(),environment:iw('release-environment').value.trim(),evidence:iw('release-evidence').value.trim()}});
   iw('outcome').onclick=()=>{const fields={};['period','target','actual','observation','evidence','conclusion'].forEach(k=>fields[k]=iw('outcome-'+k).value.trim());initiativeWorkAction('outcome',{fields});};

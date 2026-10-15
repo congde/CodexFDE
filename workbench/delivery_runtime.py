@@ -318,6 +318,24 @@ class DeliveryRuntime:
                 return row['id']
         raise ValueError('执行方案没有关联事项')
 
+    def continuation_budget(self, item_id, previous_run_id):
+        """Rework follows the same measured budget and stop rules as resume."""
+        with self.lock:
+            self._require_open()
+            data = self._load(item_id)
+            if not data.get('run_id'):
+                return None
+            if data['run_id'] != previous_run_id:
+                raise ValueError('返工所依据的运行已变化，请重新核对候选与授权')
+            if data['state'] in {'running', 'queued', 'pausing', 'cancelling', 'resuming', 'awaiting_approval'}:
+                raise ValueError('原运行尚未结束，请先停止并核对候选，不能通过返工另起运行')
+            budget = dict(data['budget'])
+            if budget.get('usage_unavailable'):
+                raise ValueError('原运行缺少可核验 Token 用量，不能通过返工重置预算；请重新讨论并确认新的执行预算')
+            if budget['tokens_used'] >= budget['token_budget'] or budget['elapsed_seconds'] >= budget['time_budget_seconds']:
+                raise ValueError('原执行预算已耗尽，不能通过返工重置预算；请重新讨论并确认新的执行预算')
+            return budget
+
     def _begin(self, item_id, plan, *, state='running'):
         with self.lock:
             self._require_open()
@@ -344,7 +362,11 @@ class DeliveryRuntime:
             budget = {'token_budget': bounds.get('token_budget', 30000), 'tokens_used': 0,
                       'time_budget_seconds': bounds.get('time_budget_seconds', 900),
                       'elapsed_seconds': 0, 'max_workers': data.get('max_workers', 2)}
-            previous_budget = data.pop('resume_budget', None)
+            continuation = plan.get('continuation_run_id')
+            previous_budget = (self.continuation_budget(item_id, continuation) if continuation
+                               else data.get('resume_budget'))
+            if continuation and previous_budget is None:
+                raise ValueError('缺少原运行预算记录，不能启动返工')
             if previous_budget:
                 budget.update(previous_budget)
                 if budget.get('usage_unavailable') or budget['tokens_used'] >= budget['token_budget'] or budget['elapsed_seconds'] >= budget['time_budget_seconds']:
@@ -360,6 +382,7 @@ class DeliveryRuntime:
                         profile_sha256=profile_sha, control_revision=data['control_revision'] + 1)
             data.pop('requested_control', None)
             data.pop('recovery_accounting', None)
+            data.pop('resume_budget', None)
             self.events[item_id] = threading.Event()
             old_timer = self.timers.pop(item_id, None)
             if old_timer:
@@ -505,6 +528,8 @@ class DeliveryRuntime:
                     plan = prepare_daily(source, self.runtime, actor, old['request'], old['acceptance'], old['write_scope'], project=old.get('project'))
                     plan.update(plan_id=secrets.token_hex(18), expires_at=time.time() + 900,
                                 document_version=old.get('document_version'))
+                    if 'budget_policy' in old:
+                        plan['budget_policy'] = dict(old['budget_policy'])
                     plan['spec_text'] = old['spec_text'] + '\n\n本次恢复授权：' + actor + '；保留候选 SHA-256：' + current_hash
                     if old.get('profile'):
                         plan['profile'] = old['profile']
@@ -513,6 +538,9 @@ class DeliveryRuntime:
                         if binding:
                             plan['learning_binding_id'] = binding['id']
                     work.update(stage='confirmed', workspace=str(source), plan=plan)
+                    if old.get('confirmation_sha256'):
+                        from .initiative_decisions import confirmation_digest
+                        plan['confirmation_sha256'] = confirmation_digest(work)
                     self.workflow._save(work)
                     workflow_revision = work['revision']
                 resume_budget = dict(data['budget'])

@@ -76,6 +76,7 @@
 <button id="v0-open-task" type="button" hidden>到交付记录查看本次任务</button><p id="v0-status" role="status"></p>
 </details>
 <div class="iw-context"><p id="iw-project"></p><span id="iw-stage" role="status"></span></div>
+<details id="iw-route-panel"><summary>本事项的交付路径</summary><p id="iw-route-status" role="status"></p><div id="draft-delivery-route" class="draft-notice"></div><label>路径<select id="iw-route-mode"><option value="standard">常规交付 · 分步确认</option><option value="quick">局部小修改 · 合并确认与授权</option><option value="strict">关键业务 · 严格分步确认</option><option value="course">课程训练 · 保留分步判断与验收证据</option></select></label><label>本次路径判断的依据<textarea id="iw-route-note" rows="2" maxlength="3000" placeholder="说明影响范围、风险及为何适合这条路径"></textarea></label><button id="iw-route-save" type="button">保存路径判断</button><p class="hint">选择路径不会执行代码。所有路径均保留候选、Eval、具名人审和独立集成授权。</p></details>
 <ol id="iw-stage-track" class="stage-track" aria-label="当前交付阶段"></ol>
 <nav class="iw-tabs" aria-label="事项工作区"><button data-iw-pane="action">推进交付</button><button data-iw-pane="plan">方案与范围</button><button data-iw-pane="result">结果与证据</button><button data-iw-pane="runtime">运行与分工</button></nav>
 <p id="iw-error" role="alert"></p>
@@ -121,6 +122,7 @@
 <section class="next-decision"><span class="eyebrow" id="iw-next-owner">下一步</span><h3 id="iw-next-title"></h3><p id="iw-next-description"></p><ol id="iw-questions"></ol><p id="iw-live-status" role="status" aria-live="polite"></p><div class="activity-line" id="iw-live-output"></div><button id="iw-primary-next" class="primary" hidden>查看下一步</button></section>
 <details id="iw-findings"><summary>本轮调研结论</summary><p id="iw-latest-answer"></p></details>
 <div class="iw-composer"><div id="iw-answers"></div><button id="iw-defer-people" class="secondary" type="button" hidden>人员待定，先完善方案</button><label for="iw-message" id="iw-message-label">补充需求或回答问题</label><textarea id="iw-message" rows="4" maxlength="10000" placeholder="说清你想解决的问题，或在这里回答上面的问题。"></textarea><div class="composer-actions"><button id="iw-discuss" class="primary" type="button">让 Codex 开始调研</button><button id="iw-cancel" class="secondary" type="button" hidden>停止本轮</button><span id="iw-composer-hint" class="hint"></span></div></div>
+<section id="iw-rework-panel" class="platform-card" hidden><h3>按实际原因返工</h3><div id="draft-rework-decision" class="draft-notice"></div><label>需要修正什么<select id="iw-rework-reason"><option value="implementation">实现错误 · 沿原范围准备修复</option><option value="technical">技术方案错误 · 保留未变化的需求确认</option><option value="requirement">需求变化 · 重新澄清并确认</option><option value="environment">环境问题 · 核对候选并复验或准备新轮授权</option></select></label><p id="iw-rework-help"></p><label>失败证据与本轮修订依据<textarea id="iw-rework-note" rows="3" maxlength="10000" placeholder="写明失败表现、证据位置和本轮需要修正的内容"></textarea></label><button id="iw-rework-submit" type="button">按所选原因处理</button><p class="hint">实现修复准备后仍需授权执行，检查通过仍需验收。课程首次判断、失败与修订记录继续保留。</p></section>
 <details id="iw-discussion-history"><summary>讨论记录 <span id="iw-message-count"></span></summary><div id="iw-messages" aria-label="事项讨论记录"></div></details>
 </div>
 <div id="iw-pane-plan" hidden><p id="iw-plan-empty" class="workspace-empty">需求还在澄清。形成方案后，你将在这里确认目标、范围与验收条件。</p>
@@ -128,7 +130,7 @@
 <details><summary>核对源码依据与 Codex 建议的修改范围</summary><pre id="iw-scope"></pre></details>
 <label for="iw-reviewer">验收负责人</label><input id="iw-reviewer" maxlength="80" placeholder="填写实际验收人的署名">
 <button id="iw-confirm" type="button" class="primary">确认技术方案与验收负责人</button>
-<button id="iw-execute" type="button" class="primary" hidden>授权工作台执行本轮方案</button></section>
+<button id="iw-quick-execute" type="button" class="primary" hidden>核对以上目标与范围，确认并授权执行</button><button id="iw-execute" type="button" class="primary" hidden>授权工作台执行本轮方案</button><section id="iw-renew-panel" hidden><h4>核对过期的执行授权</h4><p>需求、源码、检查命令、运行配置及预算均未变化时可以续期。续期保留原合同与确认记录，不启动执行。</p><div id="draft-authorization-renewal" class="draft-notice"></div><label>本次核对依据<textarea id="iw-renew-note" rows="2" maxlength="3000" placeholder="确认仍采用本版本需求、范围与验收条件"></textarea></label><button id="iw-renew" type="button">核对原合同并续期（不执行）</button></section></section>
 </div><div id="iw-pane-result" hidden><p id="iw-result-empty" class="workspace-empty">还没有执行结果。授权执行后，实际改动、检查与验收记录会出现在这里。</p><section id="iw-result" hidden><h3>本轮成果</h3><p id="iw-result-summary"></p><a id="iw-patch" hidden>下载本轮补丁</a>
 <button id="iw-preview" type="button">核对候选预览方案</button><p id="iw-preview-status"></p><a id="iw-preview-link" target="_blank" rel="noopener" hidden>在独立窗口打开客户项目候选</a><iframe id="iw-preview-frame" title="本事项所属项目的候选成果" hidden></iframe>
 <details><summary>实际改动与检查记录</summary><pre id="iw-diff"></pre><pre id="iw-checks"></pre></details>
@@ -176,6 +178,7 @@
 <label for="iw-note">验收依据</label><textarea id="iw-note" rows="2" placeholder="说明核对了什么，以及结果是否满足本期需求"></textarea>
 <div id="draft-review" class="draft-notice"></div>
 <button id="iw-accept" class="primary" type="button">接受本轮候选</button>
+<button id="iw-open-rework" class="secondary" type="button" hidden>需要修订，选择返工原因</button>
 <p id="iw-integration-help" hidden>确认集成将把已验收的累计改动写回当前项目源码。工作台会核对起点并备份原文件；不会自动提交 Git 或部署。</p>
 <button id="iw-integrate" class="primary" type="button" hidden>确认集成到项目源码</button></section>
 <section id="iw-delivery" hidden><h3>实际发布与效果回收</h3><p id="iw-observation-status"></p>

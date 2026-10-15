@@ -7,6 +7,7 @@ from pathlib import Path
 
 from .automation import DeliveryAutomation
 from .course_mainline import LESSONS, create_lesson_task, lesson_baseline_status, lesson_contract, validate_mainline, write_lesson_spec
+from .course_versions import session_versions_status
 from .course_workspace import CourseWorktreeManager
 from .course_release import CourseBaselinePublisher, CourseCandidateArtifacts
 from .execution import CodexExecutionRunner
@@ -88,8 +89,11 @@ def main() -> int:
     course_spec_cmd.add_argument("--lesson", type=int, choices=range(1, 17), required=True)
     course_spec_cmd.add_argument("--output", help="默认写入 .runtime/course/LNN/FDE_SPEC.md")
     course_spec_cmd.add_argument("--eval-case", action="append", default=[], help="L15/L16 本次需求新增 Eval，可重复")
-    course_status_cmd = sub.add_parser("course-status", help="检查 16 讲合同、Eval 映射和逐讲基线")
+    course_status_cmd = sub.add_parser("course-status", help="检查 16 讲合同、Eval 映射、逐讲基线和配套材料")
     course_status_cmd.add_argument("--require-baselines", action="store_true", help="缺少逐讲 Git 起始标签时返回失败")
+    course_status_cmd.add_argument("--require-materials", action="store_true", help="配套版本缺失或不一致时返回失败")
+    course_status_cmd.add_argument("--check-remote", nargs="?", const="origin", metavar="REMOTE",
+                                   help="联网只读核对配套标签，默认 origin；远端未齐全或查询失败时返回失败")
     course_prepare_cmd = sub.add_parser("course-prepare", help="为本讲创建剥离增量后的隔离工作区")
     course_prepare_cmd.add_argument("--lesson", type=int, choices=range(1, 17), required=True)
     course_prepare_cmd.add_argument("--runtime-dir", default=".runtime")
@@ -331,8 +335,16 @@ def _dispatch(args, parser) -> int:
         print(json.dumps({"lesson": args.lesson, "spec_path": str(target)}, ensure_ascii=False, indent=2)); return 0
     if args.command == "course-status":
         result = validate_mainline(Path.cwd())
+        materials = session_versions_status(Path.cwd(), remote=args.check_remote)
+        result["session_materials"] = materials
+        if not materials["ready"]:
+            result.setdefault("warnings", []).append("配套课程材料尚未就绪，请查看 session_materials.errors。")
         print(json.dumps(result, ensure_ascii=False, indent=2))
-        return 1 if (not result["contract_valid"] or (args.require_baselines and not result["course_ready"])) else 0
+        failed = (not result["contract_valid"]
+                  or (args.require_baselines and not result["course_ready"])
+                  or (args.require_materials and not materials["ready"])
+                  or (args.check_remote is not None and not materials["remote"]["ready"]))
+        return 1 if failed else 0
     if args.command == "course-eval":
         lesson = lesson_contract(args.lesson)
         dynamic_cases = tuple(dict.fromkeys(args.case))
